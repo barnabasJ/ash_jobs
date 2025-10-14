@@ -19,9 +19,16 @@ logic to user-defined actions via a global Change module.
 - Must integrate three major Ash ecosystem libraries: ash_state_machine,
   ash_oban, and workflow patterns
 - Requires sophisticated DSL design using Spark.Dsl.Extension
+- **One workflow per resource**: Aligned with ash_state_machine's limitation of
+  one state machine per resource
+- **Separate job resources pattern**: Recommended to use separate job resources
+  (e.g., `FulfillmentJob`, `ReturnJob`) rather than multiple workflows on one
+  domain resource
 - **Sequential execution**: Steps run one at a time via explicit
   `on_success`/`on_error` routing
 - **State-based orchestration**: Oban triggers filter on current step state
+- **Simple attribute naming**: Defaults to `:state`, `:started_at`,
+  `:completed_at`, `:last_error` (no workflow name prefixes)
 - **User-defined actions**: Users write all business logic in normal Ash actions
 - **Global Change module**: Single Change module handles routing after user's
   logic completes
@@ -31,7 +38,6 @@ logic to user-defined actions via a global Change module.
   special context management)
 - **Manual pause points**: Workflows can wait for external input (user
   confirmations, webhooks)
-- **Single-resource workflows**: All steps call actions on the same resource
 
 ---
 
@@ -103,17 +109,15 @@ end
 
 **DSL Definition Modules:**
 
-- `lib/ash_jobs/dsl/workflow.ex` - Workflow entity definition
-  - Define workflow DSL structure (name, steps, error handling)
-- `lib/ash_jobs/dsl/step.ex` - Step entity within workflows
+- `lib/ash_jobs/dsl/step.ex` - Step entity definition
   - Define individual step configuration (action name, timeouts, routing)
   - Support manual (pausable) and automatic (Oban-triggered) steps via `trigger`
     option
-  - Custom state names via `state` option (overrides default generated name)
   - Explicit routing via `on_success`, `on_error`, `on_complete`
   - All steps call actions on the current resource only
 - `lib/ash_jobs/dsl/sections.ex` - DSL section definitions
-  - Create `:workflows` top-level section
+  - Create `:workflow` top-level section (singular - one workflow per resource)
+  - Define `state_attribute` option (defaults to `:state`)
 
 **Transformer Modules:**
 
@@ -210,7 +214,7 @@ defmodule AshJobs do
       AshJobs.Transformers.IntegrateStateMachine,
       AshJobs.Transformers.IntegrateOban
     ],
-    sections: [AshJobs.Dsl.Sections.workflows()],
+    sections: [AshJobs.Dsl.Sections.workflow()],  # Singular - one workflow per resource
     verifiers: [AshJobs.Verifiers.WorkflowConsistency]
 end
 ```
@@ -1229,9 +1233,8 @@ implementations, but that's outside the library's scope.
 lib/ash_jobs/
 ├── ash_jobs.ex                           # Main extension module
 ├── dsl/
-│   ├── sections.ex                       # DSL section definitions
+│   ├── sections.ex                       # DSL section definition (workflow - singular)
 │   ├── entities/
-│   │   ├── workflow.ex                   # Workflow entity schema
 │   │   └── step.ex                       # Step entity schema
 │   └── schema.ex                         # Shared schema definitions
 ├── transformers/
@@ -1248,6 +1251,10 @@ lib/ash_jobs/
 └── behaviours/
     └── workflow_handler.ex               # Extension point behaviour (optional)
 ```
+
+**Note:** No `workflow.ex` entity file needed since there's only one workflow
+per resource. The workflow configuration is defined directly in the section
+definition with options like `state_attribute`.
 
 ### DSL Design (Proposed)
 

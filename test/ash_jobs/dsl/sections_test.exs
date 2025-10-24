@@ -18,10 +18,9 @@ defmodule AshJobs.Dsl.SectionsTest do
 
     test "workflow section has step entities" do
       section = Sections.workflow()
-      step_entity = Enum.find(section.entities, fn {name, _target} -> name == :step end)
+      step_entity = Enum.find(section.entities, fn entity -> entity.name == :step end)
       assert step_entity
-      {_name, target} = step_entity
-      assert target == AshJobs.Dsl.Entities.Step
+      assert step_entity.target == AshJobs.Dsl.Entities.Step
     end
 
     test "workflow section is top-level (not nested)" do

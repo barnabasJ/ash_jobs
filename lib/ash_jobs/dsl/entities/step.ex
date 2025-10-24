@@ -61,6 +61,7 @@ defmodule AshJobs.Dsl.Entities.Step do
     :on_success,
     :on_error,
     :on_complete,
+    :__spark_metadata__,
     queue: :default,
     trigger: true,
     timeout_seconds: nil,

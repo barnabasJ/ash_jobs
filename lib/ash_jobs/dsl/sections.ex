@@ -6,6 +6,8 @@ defmodule AshJobs.Dsl.Sections do
   and step definitions.
   """
 
+  alias AshJobs.Dsl.Entities.Step
+
   @doc """
   Defines the workflow section.
 
@@ -45,7 +47,13 @@ defmodule AshJobs.Dsl.Sections do
         ]
       ],
       entities: [
-        step: AshJobs.Dsl.Entities.Step
+        %Spark.Dsl.Entity{
+          name: :step,
+          target: Step,
+          args: [:name],
+          schema: Step.schema(),
+          describe: "Defines a step in the workflow"
+        }
       ],
       describe: """
       Defines a sequential workflow with explicit step routing.

@@ -572,7 +572,7 @@ end
 
 ---
 
-#### 5. [ ] **Create Main Extension Module**
+#### 5. [x] **Create Main Extension Module**
 
 **Test Specifications:**
 
@@ -646,14 +646,14 @@ end
 
 **Implementation Steps:**
 
-5.1. [ ] **Create test file with extension tests**
+5.1. [x] **Create test file with extension tests**
 
 - File: `test/ash_jobs/extension_test.exs`
 - Write tests for extension structure and ordering
 - Run test: `mix test test/ash_jobs/extension_test.exs`
 - Confirm tests fail (extension not yet implemented)
 
-  5.2. [ ] **Replace stub in lib/ash_jobs.ex**
+  5.2. [x] **Replace stub in lib/ash_jobs.ex**
 
 ```elixir
 defmodule AshJobs do
@@ -735,11 +735,11 @@ end
 - 📖 [Spark Extension Guide](https://hexdocs.pm/spark/Spark.Dsl.Extension.html)
 - 📖 [Writing Ash Extensions](https://hexdocs.pm/ash/writing-extensions.html)
 
-  5.3. [ ] **Run tests**: `mix test test/ash_jobs/extension_test.exs`
+  5.3. [x] **Run tests**: `mix test test/ash_jobs/extension_test.exs`
 
-  5.4. [ ] **Verify all tests pass** (must be green before commit)
+  5.4. [x] **Verify all tests pass** (must be green before commit)
 
-  5.5. [ ] **Format code**: `mix format`
+  5.5. [x] **Format code**: `mix format`
 
 📝 **Commit**:
 `feat: implement main AshJobs extension with transformer pipeline`

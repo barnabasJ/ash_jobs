@@ -450,7 +450,7 @@ end
 
 ---
 
-#### 4. [ ] **Create Workflow Section Definition**
+#### 4. [x] **Create Workflow Section Definition**
 
 **Test Specifications:**
 
@@ -489,14 +489,14 @@ end
 
 **Implementation Steps:**
 
-4.1. [ ] **Create test file with section tests**
+4.1. [x] **Create test file with section tests**
 
 - File: `test/ash_jobs/dsl/sections_test.exs`
 - Write tests for section structure and options
 - Run test: `mix test test/ash_jobs/dsl/sections_test.exs`
 - Confirm tests fail (section not yet created)
 
-  4.2. [ ] **Create Sections module**
+  4.2. [x] **Create Sections module**
 
 ```elixir
 defmodule AshJobs.Dsl.Sections do
@@ -562,11 +562,11 @@ end
 - 📖
   [Spark Section Documentation](https://hexdocs.pm/spark/Spark.Dsl.Section.html)
 
-  4.3. [ ] **Run tests**: `mix test test/ash_jobs/dsl/sections_test.exs`
+  4.3. [x] **Run tests**: `mix test test/ash_jobs/dsl/sections_test.exs`
 
-  4.4. [ ] **Verify all tests pass** (must be green before commit)
+  4.4. [x] **Verify all tests pass** (must be green before commit)
 
-  4.5. [ ] **Format code**: `mix format`
+  4.5. [x] **Format code**: `mix format`
 
 📝 **Commit**: `feat(dsl): add workflow section definition with step entities`
 

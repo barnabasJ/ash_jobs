@@ -180,7 +180,7 @@ mix deps.compile
 
 ---
 
-#### 2. [ ] **Configure Formatter with Spark DSL Support**
+#### 2. [x] **Configure Formatter with Spark DSL Support**
 
 **Test Specifications:**
 
@@ -188,21 +188,22 @@ mix deps.compile
 # test/formatter_test.exs
 test "formatter recognizes Spark DSL keywords" do
   # Verify .formatter.exs imports Spark plugin
-  formatter_config = Mix.Tasks.Format.formatter_opts_for_file(".formatter.exs")
-  assert Spark.Formatter in formatter_config[:plugins]
+  formatter_opts = Code.eval_file(".formatter.exs") |> elem(0)
+  plugins = Keyword.get(formatter_opts, :plugins, [])
+  assert Spark.Formatter in plugins
 end
 ```
 
 **Implementation Steps:**
 
-2.1. [ ] **Write formatter configuration test**
+2.1. [x] **Write formatter configuration test**
 
 - Create test/formatter_test.exs
 - Test that Spark.Formatter plugin is configured
 - Run test: `mix test test/formatter_test.exs`
 - Confirm test fails (not configured yet)
 
-  2.2. [ ] **Update .formatter.exs**
+  2.2. [x] **Update .formatter.exs**
 
 ```elixir
 [
@@ -216,15 +217,15 @@ end
 - 📖
   [Spark.Formatter Documentation](https://hexdocs.pm/spark/Spark.Formatter.html)
 
-  2.3. [ ] **Format all existing code**
+  2.3. [x] **Format all existing code**
 
 ```bash
 mix format
 ```
 
-2.4. [ ] **Run tests**: `mix test`
+2.4. [x] **Run tests**: `mix test`
 
-2.5. [ ] **Verify all tests pass** (must be green before commit)
+2.5. [x] **Verify all tests pass** (must be green before commit)
 
 📝 **Commit**: `chore: configure formatter with Spark DSL support`
 

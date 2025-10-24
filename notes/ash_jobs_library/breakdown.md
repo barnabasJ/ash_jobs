@@ -233,7 +233,7 @@ mix format
 
 ### DSL Definition
 
-#### 3. [ ] **Create Step Entity Schema**
+#### 3. [x] **Create Step Entity Schema**
 
 **Test Specifications:**
 
@@ -294,14 +294,14 @@ end
 
 **Implementation Steps:**
 
-3.1. [ ] **Create test file with entity schema tests**
+3.1. [x] **Create test file with entity schema tests**
 
 - File: `test/ash_jobs/dsl/entities/step_test.exs`
 - Write tests for schema structure (options, types, required fields)
 - Run test: `mix test test/ash_jobs/dsl/entities/step_test.exs`
 - Confirm tests fail (entity not yet created)
 
-  3.2. [ ] **Create Step entity module**
+  3.2. [x] **Create Step entity module**
 
 ```elixir
 defmodule AshJobs.Dsl.Entities.Step do
@@ -440,11 +440,11 @@ end
 - 📖
   [Spark Entity Documentation](https://hexdocs.pm/spark/Spark.Dsl.Entity.html)
 
-  3.3. [ ] **Run tests**: `mix test test/ash_jobs/dsl/entities/step_test.exs`
+  3.3. [x] **Run tests**: `mix test test/ash_jobs/dsl/entities/step_test.exs`
 
-  3.4. [ ] **Verify all tests pass** (must be green before commit)
+  3.4. [x] **Verify all tests pass** (must be green before commit)
 
-  3.5. [ ] **Format code**: `mix format`
+  3.5. [x] **Format code**: `mix format`
 
 📝 **Commit**: `feat(dsl): add Step entity schema with workflow routing options`
 

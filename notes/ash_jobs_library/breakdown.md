@@ -750,7 +750,7 @@ end
 
 ### Error Action Generation
 
-#### 6. [ ] **Implement GenerateErrorActions Transformer**
+#### 6. [x] **Implement GenerateErrorActions Transformer**
 
 **Test Specifications:**
 
@@ -859,13 +859,13 @@ end
 
 **Implementation Steps:**
 
-6.1. [ ] **Create test support for resource compilation**
+6.1. [x] **Create test support for resource compilation**
 
 - File: `test/support/compilation_helpers.exs`
 - Helper functions for compiling test resources with DSL
 - Utilities for extracting and verifying generated code
 
-  6.2. [ ] **Create test file with error action generation tests**
+  6.2. [x] **Create test file with error action generation tests**
 
 - File: `test/ash_jobs/transformers/generate_error_actions_test.exs`
 - Write tests for action generation logic
@@ -873,7 +873,7 @@ end
   `mix test test/ash_jobs/transformers/generate_error_actions_test.exs`
 - Confirm tests fail (transformer not yet implemented)
 
-  6.3. [ ] **Create GenerateErrorActions transformer**
+  6.3. [x] **Create GenerateErrorActions transformer**
 
 ```elixir
 defmodule AshJobs.Transformers.GenerateErrorActions do
@@ -975,12 +975,12 @@ end
   [Spark Transformer Guide](https://hexdocs.pm/spark/Spark.Dsl.Transformer.html)
 - 📖 [Ash Actions](https://hexdocs.pm/ash/Ash.Resource.Actions.html)
 
-  6.4. [ ] **Run tests**:
+  6.4. [x] **Run tests**:
   `mix test test/ash_jobs/transformers/generate_error_actions_test.exs`
 
-  6.5. [ ] **Verify all tests pass** (must be green before commit)
+  6.5. [x] **Verify all tests pass** (must be green before commit)
 
-  6.6. [ ] **Format code**: `mix format`
+  6.6. [x] **Format code**: `mix format`
 
 📝 **Commit**: `feat(transformers): implement GenerateErrorActions transformer`
 

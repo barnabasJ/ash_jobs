@@ -38,7 +38,7 @@ defmodule AshJobs.Dsl.Sections do
   def workflow do
     %Spark.Dsl.Section{
       name: :workflow,
-      top_level?: true,
+      top_level?: false,
       schema: [
         state_attribute: [
           type: :atom,

@@ -23,9 +23,9 @@ defmodule AshJobs.Dsl.SectionsTest do
       assert step_entity.target == AshJobs.Dsl.Entities.Step
     end
 
-    test "workflow section is top-level (not nested)" do
+    test "workflow section requires block syntax (top_level?: false)" do
       section = Sections.workflow()
-      assert section.top_level? == true
+      assert section.top_level? == false
     end
   end
 end

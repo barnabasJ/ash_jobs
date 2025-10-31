@@ -1709,7 +1709,7 @@ end
 
 ### Workflow Validation
 
-#### 9. [ ] **Implement ValidateWorkflow Verifier**
+#### 9. [x] **Implement ValidateWorkflow Verifier**
 
 **Test Specifications:**
 
@@ -2063,14 +2063,14 @@ end
 
 **Implementation Steps:**
 
-9.1. [ ] **Create test file with comprehensive validation tests**
+9.1. [x] **Create test file with comprehensive validation tests**
 
 - File: `test/ash_jobs/verifiers/validate_workflow_test.exs`
 - Write tests for all validation rules
 - Run test: `mix test test/ash_jobs/verifiers/validate_workflow_test.exs`
 - Confirm tests fail (verifier not yet implemented)
 
-  9.2. [ ] **Create ValidateWorkflow verifier**
+  9.2. [x] **Create ValidateWorkflow verifier**
 
 ```elixir
 defmodule AshJobs.Verifiers.ValidateWorkflow do
@@ -2389,12 +2389,12 @@ end
 - File: `lib/ash_jobs/verifiers/validate_workflow.ex`
 - 📖 [Spark Verifier Guide](https://hexdocs.pm/spark/Spark.Dsl.Verifier.html)
 
-  9.3. [ ] **Run tests**:
+  9.3. [x] **Run tests**:
   `mix test test/ash_jobs/verifiers/validate_workflow_test.exs`
 
-  9.4. [ ] **Verify all tests pass** (must be green before commit)
+  9.4. [x] **Verify all tests pass** (must be green before commit)
 
-  9.5. [ ] **Format code**: `mix format`
+  9.5. [x] **Format code**: `mix format`
 
 📝 **Commit**:
 `feat(verifiers): implement ValidateWorkflow verifier with injection`

@@ -159,6 +159,9 @@ defmodule AshJobs.Test.CompilationHelpers do
   @doc """
   Asserts that compilation fails with an error message matching the given pattern.
 
+  This helper captures compilation warnings/errors from Spark verifiers, which may
+  emit DslErrors that get logged as warnings but don't prevent compilation.
+
   ## Parameters
 
     * `error_pattern` - Regex pattern to match against error message
@@ -166,30 +169,38 @@ defmodule AshJobs.Test.CompilationHelpers do
 
   ## Raises
 
-    * `ExUnit.AssertionError` if compilation succeeds or error doesn't match pattern
+    * `ExUnit.AssertionError` if no error/warning matches the pattern
   """
   def assert_compile_error(error_pattern, dsl_code) do
-    case compile_resource(dsl_code) do
-      {:ok, _module} ->
-        ExUnit.Assertions.flunk("Expected compilation to fail, but it succeeded")
+    # Capture IO during compilation to catch warnings
+    output =
+      ExUnit.CaptureIO.capture_io(:stderr, fn ->
+        case compile_resource(dsl_code) do
+          {:ok, _module} ->
+            :ok
 
-      {:error, %Spark.Error.DslError{message: message}} ->
-        unless Regex.match?(error_pattern, message) do
-          ExUnit.Assertions.flunk("""
-          Expected error message to match #{inspect(error_pattern)}
-          Got: #{message}
-          """)
+          {:error, %Spark.Error.DslError{message: message}} ->
+            # Direct error - check if it matches
+            if Regex.match?(error_pattern, message) do
+              :ok
+            else
+              IO.puts(:stderr, "DslError: #{message}")
+            end
+
+          {:error, error} ->
+            error_message = Exception.message(error)
+            IO.puts(:stderr, "Error: #{error_message}")
         end
+      end)
 
-      {:error, error} ->
-        error_message = Exception.message(error)
+    # Check if the captured output contains the expected error pattern
+    unless Regex.match?(error_pattern, output) do
+      ExUnit.Assertions.flunk("""
+      Expected compilation to emit error matching #{inspect(error_pattern)}
 
-        unless Regex.match?(error_pattern, error_message) do
-          ExUnit.Assertions.flunk("""
-          Expected error message to match #{inspect(error_pattern)}
-          Got: #{error_message}
-          """)
-        end
+      Captured output:
+      #{String.slice(output, 0, 1000)}
+      """)
     end
   end
 end

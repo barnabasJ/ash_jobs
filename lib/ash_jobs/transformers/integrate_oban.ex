@@ -48,6 +48,16 @@ defmodule AshJobs.Transformers.IntegrateOban do
 
   use Spark.Dsl.Transformer
 
+  # Run after our own transformers but before all AshOban and AshStateMachine transformers
+  def after?(AshJobs.Transformers.GenerateErrorActions), do: true
+  def after?(AshJobs.Transformers.IntegrateStateMachine), do: true
+  def after?(_), do: false
+
+  def before?(AshOban.Transformers.SetDefaults), do: true
+  def before?(AshOban.Transformers.DefineSchedulers), do: true
+  def before?(AshOban.Transformers.DefineActionWorkers), do: true
+  def before?(_), do: false
+
   def transform(dsl_state) do
     # Get workflow configuration
     workflow_steps = Spark.Dsl.Extension.get_entities(dsl_state, [:workflow])
@@ -79,9 +89,16 @@ defmodule AshJobs.Transformers.IntegrateOban do
     state_attr =
       Spark.Dsl.Transformer.get_option(dsl_state, [:workflow], :state_attribute) || :state
 
-    # Get existing triggers to avoid duplicates
+    # Get existing triggers AND scheduled_actions to avoid duplicates
+    # Note: AshOban requires unique names across both triggers and scheduled_actions
     existing_triggers = Spark.Dsl.Extension.get_entities(dsl_state, [:oban, :triggers]) || []
+
+    existing_scheduled =
+      Spark.Dsl.Extension.get_entities(dsl_state, [:oban, :scheduled_actions]) || []
+
     existing_trigger_names = MapSet.new(existing_triggers, & &1.name)
+    existing_scheduled_names = MapSet.new(existing_scheduled, & &1.name)
+    existing_names = MapSet.union(existing_trigger_names, existing_scheduled_names)
 
     # Generate triggers for automatic steps only (trigger != false)
     # Skip steps that already have triggers defined
@@ -90,7 +107,7 @@ defmodule AshJobs.Transformers.IntegrateOban do
       workflow_steps
       |> Enum.reject(fn step -> step.trigger == false end)
       |> Enum.uniq_by(& &1.name)
-      |> Enum.reject(fn step -> MapSet.member?(existing_trigger_names, step.name) end)
+      |> Enum.reject(fn step -> MapSet.member?(existing_names, step.name) end)
       |> Enum.map(&build_trigger(&1, state_attr))
 
     # Add each trigger to the DSL state
@@ -107,20 +124,37 @@ defmodule AshJobs.Transformers.IntegrateOban do
     # Build where expression: state_attr == step_name
     where_expr = build_where_expr(state_attr, step.name)
 
-    # Create AshOban.Trigger struct with all required defaults
-    %AshOban.Trigger{
+    # Build options, only including non-nil values
+    opts = [
       name: step.name,
       action: step.action,
       where: where_expr,
-      on_error: step.on_error,
-      queue: step.queue,
+      queue: step.queue || :default,
       max_attempts: step.retry_attempts || 20,
-      timeout: if(step.timeout_seconds, do: step.timeout_seconds * 1000, else: nil),
       worker_opts: [],
       state: :active,
       scheduler_priority: 1,
       worker_priority: 0
-    }
+    ]
+
+    # Add optional fields only if they're not nil
+    opts = if step.on_error, do: Keyword.put(opts, :on_error, step.on_error), else: opts
+
+    opts =
+      if step.timeout_seconds,
+        do: Keyword.put(opts, :timeout, step.timeout_seconds * 1000),
+        else: opts
+
+    # Use Spark.Dsl.Transformer.build_entity to properly construct the trigger
+    {:ok, trigger} =
+      Spark.Dsl.Transformer.build_entity(
+        AshOban,
+        [:oban, :triggers],
+        :trigger,
+        opts
+      )
+
+    trigger
   end
 
   defp build_where_expr(state_attr, step_name) do

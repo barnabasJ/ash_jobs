@@ -155,4 +155,41 @@ defmodule AshJobs.Test.CompilationHelpers do
       {:error, reason} -> {:ok, reason}
     end
   end
+
+  @doc """
+  Asserts that compilation fails with an error message matching the given pattern.
+
+  ## Parameters
+
+    * `error_pattern` - Regex pattern to match against error message
+    * `dsl_code` - String containing Elixir DSL code
+
+  ## Raises
+
+    * `ExUnit.AssertionError` if compilation succeeds or error doesn't match pattern
+  """
+  def assert_compile_error(error_pattern, dsl_code) do
+    case compile_resource(dsl_code) do
+      {:ok, _module} ->
+        ExUnit.Assertions.flunk("Expected compilation to fail, but it succeeded")
+
+      {:error, %Spark.Error.DslError{message: message}} ->
+        unless Regex.match?(error_pattern, message) do
+          ExUnit.Assertions.flunk("""
+          Expected error message to match #{inspect(error_pattern)}
+          Got: #{message}
+          """)
+        end
+
+      {:error, error} ->
+        error_message = Exception.message(error)
+
+        unless Regex.match?(error_pattern, error_message) do
+          ExUnit.Assertions.flunk("""
+          Expected error message to match #{inspect(error_pattern)}
+          Got: #{error_message}
+          """)
+        end
+    end
+  end
 end

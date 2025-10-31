@@ -86,7 +86,8 @@ defmodule AshJobs.Transformers.IntegrateStateMachineTest do
         """)
 
       # Verify state_machine section was added
-      assert function_exported?(resource, :__state_machine_initial_states__, 0)
+      assert {:ok, initial_states} = AshStateMachine.Info.state_machine_initial_states(resource)
+      assert :load_order in initial_states
     end
 
     test "skips generation if state_machine section already exists" do
@@ -125,7 +126,7 @@ defmodule AshJobs.Transformers.IntegrateStateMachineTest do
         """)
 
       # User's custom state machine should be preserved
-      initial_states = resource.__state_machine_initial_states__()
+      {:ok, initial_states} = AshStateMachine.Info.state_machine_initial_states(resource)
       assert :custom_initial in initial_states
     end
 
@@ -162,7 +163,10 @@ defmodule AshJobs.Transformers.IntegrateStateMachineTest do
       # Should have states: load_order, validate_inventory, completed
       # (plus terminal states: failed, cancelled)
       # Verify via state machine introspection
-      assert function_exported?(resource, :__state_machine_states__, 0)
+      states = AshStateMachine.Info.state_machine_all_states(resource)
+      assert :load_order in states
+      assert :validate_inventory in states
+      assert :completed in states
     end
 
     test "generates transitions based on on_success routing" do
@@ -199,7 +203,14 @@ defmodule AshJobs.Transformers.IntegrateStateMachineTest do
       # Verify transitions exist
       # Should have: load_order → validate_inventory, validate_inventory → completed
       # Plus error transition: handle_error → failed
-      assert function_exported?(resource, :__state_machine_transitions__, 0)
+      transitions = AshStateMachine.Info.state_machine_transitions(resource)
+      assert length(transitions) > 0
+
+      # Find the transition for load_order action
+      load_order_transition = Enum.find(transitions, &(&1.action == :load_order))
+      assert load_order_transition
+      assert :load_order in load_order_transition.from
+      assert :validate_inventory in load_order_transition.to
     end
 
     test "uses custom state_attribute if specified" do
@@ -229,7 +240,7 @@ defmodule AshJobs.Transformers.IntegrateStateMachineTest do
         """)
 
       # Verify state attribute is :workflow_state, not :state
-      state_attr = resource.__state_machine_state_attribute__()
+      state_attr = AshStateMachine.Info.state_machine_state_attribute!(resource)
       assert state_attr == :workflow_state
     end
   end

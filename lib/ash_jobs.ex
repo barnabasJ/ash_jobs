@@ -63,6 +63,8 @@ defmodule AshJobs do
     transformers: [
       # Generate error handler actions first (they're simple state transitions)
       AshJobs.Transformers.GenerateErrorActions,
+      # Inject Change module into workflow actions for routing
+      AshJobs.Transformers.BuildWorkflow,
       # Then integrate with ash_state_machine (uses generated error actions)
       AshJobs.Transformers.IntegrateStateMachine,
       # Finally integrate with ash_oban (references state machine states)

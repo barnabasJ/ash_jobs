@@ -6,11 +6,20 @@ defmodule AshJobs.MixProject do
       app: :ash_jobs,
       version: "0.1.0",
       elixir: "~> 1.18",
+      elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       consolidate_protocols: Mix.env() != :test,
-      deps: deps()
+      deps: deps(),
+      aliases: aliases(),
+      preferred_cli_env: [
+        "test.setup": :test,
+        "test.reset": :test
+      ]
     ]
   end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
 
   # Run "mix help compile.app" to learn about applications.
   def application do
@@ -35,7 +44,21 @@ defmodule AshJobs.MixProject do
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:sourceror, "~> 1.7", only: [:dev, :test]},
       {:mimic, "~> 1.11", only: :test},
-      {:stream_data, "~> 1.2"}
+      {:stream_data, "~> 1.2"},
+
+      # Integration Testing (database layer for tests)
+      {:ash_postgres, "~> 2.4", only: :test}
+    ]
+  end
+
+  defp aliases do
+    [
+      # Test database setup and management
+      "test.setup": [
+        "ecto.create -r AshJobs.TestRepo",
+        "ecto.migrate -r AshJobs.TestRepo --migrations-path priv/test_repo/migrations"
+      ],
+      "test.reset": ["ecto.drop -r AshJobs.TestRepo", "test.setup"]
     ]
   end
 end

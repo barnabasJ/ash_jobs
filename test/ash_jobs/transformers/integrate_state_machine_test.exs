@@ -177,7 +177,7 @@ defmodule AshJobs.Transformers.IntegrateStateMachineTest do
             attribute :state, :atom,
               default: :load_order,
               allow_nil?: false,
-              constraints: [one_of: [:completed, :failed, :load_order, :validate_inventory]]
+              constraints: [one_of: [:completed, :failed, :handle_error, :load_order, :validate_inventory]]
           end
 
           workflow do
@@ -191,12 +191,18 @@ defmodule AshJobs.Transformers.IntegrateStateMachineTest do
               action :validate
               on_success :completed
             end
+
+            step :handle_error do
+              action :handle_error
+              on_complete :failed
+            end
           end
 
           actions do
             defaults [:read]
             update :load_order, do: accept([])
             update :validate, do: accept([])
+            update :handle_error, do: accept([])
           end
         """)
 

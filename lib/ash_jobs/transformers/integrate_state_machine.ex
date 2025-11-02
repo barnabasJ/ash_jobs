@@ -82,8 +82,30 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
     state_attr =
       Spark.Dsl.Transformer.get_option(dsl_state, [:workflow], :state_attribute) || :state
 
+    # Collect all possible states (step names + terminal states)
+    step_states = Enum.map(workflow_steps, & &1.name)
+    terminal_states = [:completed, :failed, :cancelled]
+
+    # Collect target states that are actually steps or terminal states
+    referenced_states =
+      workflow_steps
+      |> Enum.flat_map(fn step ->
+        [step.on_success, step.on_error, step.on_complete]
+        |> Enum.reject(&is_nil/1)
+      end)
+      |> Enum.uniq()
+      |> Enum.filter(fn state ->
+        state in step_states or state in terminal_states
+      end)
+
+    # Combine step states and referenced states, sort for consistency
+    all_states = Enum.sort(Enum.uniq(step_states ++ referenced_states))
+
     # Determine initial state (first step)
     initial_state = List.first(workflow_steps).name
+
+    # Update the state attribute to have one_of constraint with all states
+    dsl_state = update_state_attribute_constraints(dsl_state, state_attr, all_states)
 
     # Set state_machine options
     dsl_state =
@@ -106,6 +128,38 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
     generate_transitions(dsl_state, workflow_steps)
   end
 
+  defp update_state_attribute_constraints(dsl_state, state_attr_name, all_states) do
+    # Get the state attribute from DSL entities
+    attributes = Spark.Dsl.Extension.get_entities(dsl_state, [:attributes])
+    state_attribute = Enum.find(attributes, &(&1.name == state_attr_name))
+
+    if state_attribute do
+      # Check if user already provided one_of constraint
+      existing_one_of = Keyword.get(state_attribute.constraints || [], :one_of)
+
+      if existing_one_of do
+        # User already defined one_of, don't override
+        dsl_state
+      else
+        # Update the attribute's constraints to include one_of with all states
+        updated_constraints =
+          Keyword.put(state_attribute.constraints || [], :one_of, all_states)
+
+        updated_attribute = %{state_attribute | constraints: updated_constraints}
+
+        # Replace the attribute in the DSL state
+        Spark.Dsl.Transformer.replace_entity(
+          dsl_state,
+          [:attributes],
+          updated_attribute,
+          &(&1.name == state_attr_name)
+        )
+      end
+    else
+      dsl_state
+    end
+  end
+
   defp generate_transitions(dsl_state, workflow_steps) do
     # Collect all transitions from workflow steps
     transitions =
@@ -121,15 +175,11 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
             transitions
           end
 
-        # Add error transition
-        transitions =
-          if step.on_error do
-            [%{action: step.on_error, from: [step.name], to: [:failed]} | transitions]
-          else
-            transitions
-          end
+        # Note: on_error is NOT a state transition - it's handled by AshOban triggers
+        # The on_error option tells AshOban which action to call when a job fails
+        # That error handler action is a separate workflow step with its own transition
 
-        # Add complete transition
+        # Add complete transition (used by error handlers and final steps)
         transitions =
           if step.on_complete do
             [%{action: step.action, from: [step.name], to: [step.on_complete]} | transitions]

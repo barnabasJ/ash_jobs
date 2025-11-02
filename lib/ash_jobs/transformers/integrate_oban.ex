@@ -89,6 +89,9 @@ defmodule AshJobs.Transformers.IntegrateOban do
     state_attr =
       Spark.Dsl.Transformer.get_option(dsl_state, [:workflow], :state_attribute) || :state
 
+    # Get the resource module for building module names
+    resource_module = Spark.Dsl.Transformer.get_persisted(dsl_state, :module)
+
     # Get existing triggers AND scheduled_actions to avoid duplicates
     # Note: AshOban requires unique names across both triggers and scheduled_actions
     existing_triggers = Spark.Dsl.Extension.get_entities(dsl_state, [:oban, :triggers]) || []
@@ -108,7 +111,7 @@ defmodule AshJobs.Transformers.IntegrateOban do
       |> Enum.reject(fn step -> step.trigger == false end)
       |> Enum.uniq_by(& &1.name)
       |> Enum.reject(fn step -> MapSet.member?(existing_names, step.name) end)
-      |> Enum.map(&build_trigger(&1, state_attr))
+      |> Enum.map(&build_trigger(&1, state_attr, resource_module))
 
     # Add each trigger to the DSL state
     Enum.reduce(triggers, dsl_state, fn trigger, acc_state ->
@@ -120,9 +123,13 @@ defmodule AshJobs.Transformers.IntegrateOban do
     end)
   end
 
-  defp build_trigger(step, state_attr) do
+  defp build_trigger(step, state_attr, resource_module) do
     # Build where expression: state_attr == step_name
     where_expr = build_where_expr(state_attr, step.name)
+
+    # Generate module names for worker and scheduler
+    worker_module = build_module_name(resource_module, step.name, :Worker)
+    scheduler_module = build_module_name(resource_module, step.name, :Scheduler)
 
     # Build options, only including non-nil values
     opts = [
@@ -134,7 +141,9 @@ defmodule AshJobs.Transformers.IntegrateOban do
       worker_opts: [],
       state: :active,
       scheduler_priority: 1,
-      worker_priority: 0
+      worker_priority: 0,
+      worker_module_name: worker_module,
+      scheduler_module_name: scheduler_module
     ]
 
     # Add optional fields only if they're not nil
@@ -157,20 +166,33 @@ defmodule AshJobs.Transformers.IntegrateOban do
     trigger
   end
 
+  defp build_module_name(resource_module, step_name, type) do
+    # Convert step name to PascalCase for module naming
+    # e.g., :load_order -> LoadOrder
+    step_module_name =
+      step_name
+      |> Atom.to_string()
+      |> Macro.camelize()
+
+    # Build module name like: Resource.AshOban.Worker.LoadOrder
+    # or: Resource.AshOban.Scheduler.LoadOrder
+    Module.concat([resource_module, AshOban, type, step_module_name])
+  end
+
   defp build_where_expr(state_attr, step_name) do
-    # Build Ash.Expr filter: state_attr == step_name
-    # We need to create the expression AST that will be evaluated by Ash
-    # The expr macro expects: expr(field_name == value)
-    # We use a macro to construct the expression with dynamic field name
-    {:%{}, [],
-     [
-       __struct__: Ash.Query.Call,
-       name: :==,
-       args: [
-         %Ash.Query.Ref{attribute: state_attr, relationship_path: []},
-         step_name
-       ],
-       operator?: true
-     ]}
+    # Build Ash filter expression: state_attr == step_name
+    # Create proper structs instead of map literals
+    ref = %Ash.Query.Ref{
+      attribute: state_attr,
+      relationship_path: [],
+      resource: nil
+    }
+
+    %Ash.Query.Call{
+      name: :==,
+      args: [ref, step_name],
+      operator?: true,
+      relationship_path: []
+    }
   end
 end

@@ -34,13 +34,16 @@ defmodule AshJobs.Transformers.BuildWorkflow do
   end
 
   defp inject_change_module(dsl_state, steps) do
-    # Get action names from all steps
+    # Get action names from workflow steps, excluding error handlers
+    # Error handlers use on_complete and should not have AshJobs.Change
+    # (they only use AshStateMachine transitions)
     action_names =
       steps
+      |> Enum.reject(&is_error_handler?/1)
       |> Enum.map(& &1.action)
       |> Enum.uniq()
 
-    # Add Change module to each workflow step action
+    # Add Change module to each workflow step action (except error handlers)
     dsl_state =
       Enum.reduce(action_names, dsl_state, fn action_name, acc_state ->
         add_change_to_action(acc_state, action_name)
@@ -49,6 +52,12 @@ defmodule AshJobs.Transformers.BuildWorkflow do
     # Also add Change module to ALL create actions
     # This allows creates to trigger the first workflow step
     add_change_to_all_creates(dsl_state)
+  end
+
+  defp is_error_handler?(step) do
+    # Error handlers use on_complete and have no on_success
+    # Regular steps use on_success
+    step.on_complete != nil && step.on_success == nil
   end
 
   defp add_change_to_all_creates(dsl_state) do
@@ -94,10 +103,6 @@ defmodule AshJobs.Transformers.BuildWorkflow do
   end
 
   defp remove_action(dsl_state, action_name) do
-    # Get all actions except the one we're removing
-    actions = Ash.Resource.Info.actions(dsl_state)
-    filtered_actions = Enum.reject(actions, &(&1.name == action_name))
-
     # This is a bit hacky - we need to rebuild the actions list
     # Spark doesn't have a direct "remove entity" function
     # So we'll use remove_entity if it exists, otherwise work around it

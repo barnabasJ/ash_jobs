@@ -7,5 +7,12 @@ defmodule AshJobs.TestDomain do
 
   resources do
     resource AshJobs.TestResources.OrderFulfillmentJob
+    resource AshJobs.TestResources.SimpleWorkflow
+    resource AshJobs.TestResources.BranchingWorkflow
+    resource AshJobs.TestResources.ManualWorkflow
+    resource AshJobs.TestResources.LongRunningWorkflow
+    resource AshJobs.TestResources.SingleStepWorkflow
+    resource AshJobs.TestResources.MultiTerminalWorkflow
+    resource AshJobs.TestResources.CustomStateWorkflow
   end
 end

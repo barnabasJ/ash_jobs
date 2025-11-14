@@ -38,24 +38,28 @@ defmodule AshJobs.Change do
   end
 
   defp handle_create_action(changeset, resource) do
-    # For create actions, trigger the initial workflow step
-    # The state should already be set to the initial state by the user or defaults
     changeset
     |> Ash.Changeset.after_action(fn _changeset, record ->
-      # Get the current state from the record
       workflow = AshJobs.Info.workflow!(resource)
       state_attr = workflow.state_attribute || :state
       current_state = Map.get(record, state_attr)
 
-      # Trigger the workflow step for the current (initial) state
-      # Don't trigger if we're in a terminal state
       unless current_state in [:completed, :failed, :cancelled] do
-        case AshOban.run_trigger(record, current_state) do
-          %Oban.Job{} = _job ->
-            :ok
+        case AshJobs.Info.step(resource, current_state) do
+          {:ok, step} when step.trigger == true ->
+            case AshOban.run_trigger(record, current_state) do
+              %Oban.Job{} = _job ->
+                :ok
 
-          {:error, reason} ->
-            Logger.error("Failed to trigger initial step #{current_state}: #{inspect(reason)}")
+              {:error, reason} ->
+                Logger.error(
+                  "Failed to trigger initial step #{current_state}: #{inspect(reason)}"
+                )
+
+                :ok
+            end
+
+          _ ->
             :ok
         end
       end
@@ -68,23 +72,24 @@ defmodule AshJobs.Change do
     workflow = AshJobs.Info.workflow!(resource)
     state_attr = workflow.state_attribute || :state
 
-    # Determine the next state - prefer on_success, fall back to on_complete
-    # on_complete is used for error handlers that always go to a terminal state
     next_state = step_info.on_success || step_info.on_complete
 
     changeset
     |> Ash.Changeset.force_change_attribute(state_attr, next_state)
     |> Ash.Changeset.after_action(fn _changeset, record ->
-      # Trigger the next step immediately using AshOban.run_trigger
-      # This schedules the Oban job for the next workflow step
-      # Don't trigger if we're going to a terminal state
       unless next_state in [:completed, :failed, :cancelled] do
-        case AshOban.run_trigger(record, next_state) do
-          %Oban.Job{} = _job ->
-            :ok
+        case AshJobs.Info.step(resource, next_state) do
+          {:ok, step} when step.trigger == true ->
+            case AshOban.run_trigger(record, next_state) do
+              %Oban.Job{} = _job ->
+                :ok
 
-          {:error, reason} ->
-            Logger.error("Failed to trigger next step #{next_state}: #{inspect(reason)}")
+              {:error, reason} ->
+                Logger.error("Failed to trigger next step #{next_state}: #{inspect(reason)}")
+                :ok
+            end
+
+          _ ->
             :ok
         end
       end

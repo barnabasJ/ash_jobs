@@ -2,17 +2,16 @@ defmodule AshJobs.Transformers.GenerateErrorActions do
   @moduledoc """
   Generates error handler actions for workflow steps.
 
-  For each step with an `on_error` option, this transformer generates a simple
-  error handler action if one doesn't already exist. Generated error handlers
-  simply transition the workflow to the :failed state.
+  For each step with an `on_error` option, this transformer generates a minimal
+  error handler action if one doesn't already exist.
 
   ## Generated Actions
 
   Error handler actions are generated with:
-  - `argument :error, :map` - Error details from Oban
+  - `argument :error, :term` - Error details from Oban (allow_nil: true for compatibility)
   - `accept []` - No direct attribute changes
   - `require_atomic? false` - Allow non-atomic updates
-  - State transition change to :failed
+  - No changes - AshJobs.Change module handles state transitions via on_complete
 
   ## Example
 
@@ -21,13 +20,20 @@ defmodule AshJobs.Transformers.GenerateErrorActions do
         on_error :handle_load_error
       end
 
+      step :handle_load_error do
+        action :handle_load_error
+        on_complete :failed
+      end
+
   Generates:
       update :handle_load_error do
-        argument :error, :map, allow_nil?: false
+        argument :error, :term, allow_nil?: true
         accept []
         require_atomic? false
-        change {AshStateMachine.Transition, to: :failed}
       end
+
+  The AshJobs.Change module (injected by BuildWorkflow) handles the state
+  transition to :failed via the step's on_complete option.
   """
 
   use Spark.Dsl.Transformer
@@ -70,6 +76,8 @@ defmodule AshJobs.Transformers.GenerateErrorActions do
 
   defp add_error_action(dsl_state, action_name) do
     # Build error handler action
+    # Note: State transitions are handled by AshJobs.Change module
+    # which routes to terminal states via on_complete
     action = %Ash.Resource.Actions.Update{
       name: action_name,
       type: :update,
@@ -78,13 +86,11 @@ defmodule AshJobs.Transformers.GenerateErrorActions do
       arguments: [
         %Ash.Resource.Actions.Argument{
           name: :error,
-          type: :map,
-          allow_nil?: false
+          type: :term,
+          allow_nil?: true
         }
       ],
-      changes: [
-        {AshStateMachine.BuiltinChanges.TransitionState, to: :failed}
-      ]
+      changes: []
     }
 
     # Add action to DSL state using Spark.Dsl.Transformer

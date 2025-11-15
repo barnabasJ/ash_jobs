@@ -34,16 +34,14 @@ defmodule AshJobs.Transformers.BuildWorkflow do
   end
 
   defp inject_change_module(dsl_state, steps) do
-    # Get action names from workflow steps, excluding error handlers
-    # Error handlers use on_complete and should not have AshJobs.Change
-    # (they only use AshStateMachine transitions)
+    # Get action names from ALL workflow steps
+    # All steps (including error handlers) need AshJobs.Change for routing
     action_names =
       steps
-      |> Enum.reject(&is_error_handler?/1)
       |> Enum.map(& &1.action)
       |> Enum.uniq()
 
-    # Add Change module to each workflow step action (except error handlers)
+    # Add Change module to each workflow step action
     dsl_state =
       Enum.reduce(action_names, dsl_state, fn action_name, acc_state ->
         add_change_to_action(acc_state, action_name)
@@ -52,12 +50,6 @@ defmodule AshJobs.Transformers.BuildWorkflow do
     # Also add Change module to ALL create actions
     # This allows creates to trigger the first workflow step
     add_change_to_all_creates(dsl_state)
-  end
-
-  defp is_error_handler?(step) do
-    # Error handlers use on_complete and have no on_success
-    # Regular steps use on_success
-    step.on_complete != nil && step.on_success == nil
   end
 
   defp add_change_to_all_creates(dsl_state) do

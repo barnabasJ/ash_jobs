@@ -13,6 +13,11 @@ defmodule AshJobs.Transformers.GenerateErrorActionsTest do
               on_success :completed
               on_error :handle_load_error
             end
+
+            step :handle_load_error do
+              action :handle_load_error
+              on_complete :failed
+            end
           end
 
           actions do
@@ -39,6 +44,11 @@ defmodule AshJobs.Transformers.GenerateErrorActionsTest do
               action :load_full_order
               on_success :completed
               on_error :handle_load_error
+            end
+
+            step :handle_load_error do
+              action :handle_load_error
+              on_complete :failed
             end
           end
 
@@ -72,6 +82,11 @@ defmodule AshJobs.Transformers.GenerateErrorActionsTest do
               on_success :completed
               on_error :handle_load_error
             end
+
+            step :handle_load_error do
+              action :handle_load_error
+              on_complete :failed
+            end
           end
 
           actions do
@@ -89,11 +104,11 @@ defmodule AshJobs.Transformers.GenerateErrorActionsTest do
       assert error_action
       error_arg = Enum.find(error_action.arguments, &(&1.name == :error))
       assert error_arg
-      assert error_arg.type == :map
-      assert error_arg.allow_nil? == false
+      assert error_arg.type == :term
+      assert error_arg.allow_nil? == true
     end
 
-    test "generates error actions with state transition change to :failed" do
+    test "generates error actions without changes (routing handled by AshJobs.Change)" do
       {:ok, resource} =
         compile_resource("""
           workflow do
@@ -101,6 +116,11 @@ defmodule AshJobs.Transformers.GenerateErrorActionsTest do
               action :load_full_order
               on_success :completed
               on_error :handle_load_error
+            end
+
+            step :handle_load_error do
+              action :handle_load_error
+              on_complete :failed
             end
           end
 
@@ -115,16 +135,19 @@ defmodule AshJobs.Transformers.GenerateErrorActionsTest do
       actions = Ash.Resource.Info.actions(resource)
       error_action = Enum.find(actions, &(&1.name == :handle_load_error))
 
-      # Verify it has state transition change to :failed
-      changes = error_action.changes
+      # Generated error actions should have no changes initially
+      # State transitions are handled by AshJobs.Change module via on_complete
+      # Note: BuildWorkflow transformer will add AshJobs.Change to the changes list
+      assert error_action
 
-      transition_change =
-        Enum.find(changes, fn change ->
-          match?({AshStateMachine.BuiltinChanges.TransitionState, _}, change) or
-            match?({AshStateMachine.Transition, _}, change)
+      # Find changes that are NOT AshJobs.Change (those added by GenerateErrorActions)
+      non_workflow_changes =
+        Enum.reject(error_action.changes, fn change ->
+          match?(%Ash.Resource.Change{change: {AshJobs.Change, _}}, change)
         end)
 
-      assert transition_change
+      # Should have no changes from GenerateErrorActions
+      assert non_workflow_changes == []
     end
 
     test "generates error actions with require_atomic? set to false" do
@@ -135,6 +158,11 @@ defmodule AshJobs.Transformers.GenerateErrorActionsTest do
               action :load_full_order
               on_success :completed
               on_error :handle_load_error
+            end
+
+            step :handle_load_error do
+              action :handle_load_error
+              on_complete :failed
             end
           end
 
@@ -167,6 +195,16 @@ defmodule AshJobs.Transformers.GenerateErrorActionsTest do
               action :check_stock
               on_success :completed
               on_error :handle_inventory_error
+            end
+
+            step :handle_load_error do
+              action :handle_load_error
+              on_complete :failed
+            end
+
+            step :handle_inventory_error do
+              action :handle_inventory_error
+              on_complete :failed
             end
           end
 
@@ -205,6 +243,11 @@ defmodule AshJobs.Transformers.GenerateErrorActionsTest do
               action :check_stock
               on_success :completed
               on_error :handle_error
+            end
+
+            step :handle_error do
+              action :handle_error
+              on_complete :failed
             end
           end
 

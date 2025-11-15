@@ -104,14 +104,16 @@ defmodule AshJobs.Transformers.IntegrateOban do
     existing_names = MapSet.union(existing_trigger_names, existing_scheduled_names)
 
     # Generate triggers for automatic steps only (trigger != false)
+    # Skip error handler steps (they use on_complete, not on_success)
     # Skip steps that already have triggers defined
     # Also deduplicate by step name (in case workflow_steps contains duplicates)
     triggers =
       workflow_steps
       |> Enum.reject(fn step -> step.trigger == false end)
+      |> Enum.reject(&is_error_handler?/1)
       |> Enum.uniq_by(& &1.name)
       |> Enum.reject(fn step -> MapSet.member?(existing_names, step.name) end)
-      |> Enum.map(&build_trigger(&1, state_attr, resource_module))
+      |> Enum.map(&build_trigger(&1, state_attr, resource_module, workflow_steps))
 
     # Add each trigger to the DSL state
     Enum.reduce(triggers, dsl_state, fn trigger, acc_state ->
@@ -123,7 +125,7 @@ defmodule AshJobs.Transformers.IntegrateOban do
     end)
   end
 
-  defp build_trigger(step, state_attr, resource_module) do
+  defp build_trigger(step, state_attr, resource_module, workflow_steps) do
     # Build where expression: state_attr == step_name
     where_expr = build_where_expr(state_attr, step.name)
 
@@ -132,12 +134,16 @@ defmodule AshJobs.Transformers.IntegrateOban do
     scheduler_module = build_module_name(resource_module, step.name, :Scheduler)
 
     # Build options, only including non-nil values
+    # Note: retry_attempts is number of RETRIES, so max_attempts = retries + 1 (initial attempt)
+    # Default to 20 total attempts if not specified (19 retries + 1 initial)
+    max_attempts = if step.retry_attempts, do: step.retry_attempts + 1, else: 20
+
     opts = [
       name: step.name,
       action: step.action,
       where: where_expr,
       queue: step.queue || :default,
-      max_attempts: step.retry_attempts || 20,
+      max_attempts: max_attempts,
       worker_opts: [],
       state: :active,
       scheduler_priority: 1,
@@ -147,7 +153,26 @@ defmodule AshJobs.Transformers.IntegrateOban do
     ]
 
     # Add optional fields only if they're not nil
-    opts = if step.on_error, do: Keyword.put(opts, :on_error, step.on_error), else: opts
+    opts =
+      if step.on_error do
+        # Look up the action name for the error handler step
+        # step.on_error is a step name, but AshOban needs the action name
+        error_handler_action =
+          workflow_steps
+          |> Enum.find(fn s -> s.name == step.on_error end)
+          |> case do
+            # Fallback to step name if not found
+            nil -> step.on_error
+            error_step -> error_step.action
+          end
+
+        opts
+        |> Keyword.put(:on_error, error_handler_action)
+        # When error handler succeeds, don't fail the Oban job
+        |> Keyword.put(:on_error_fails_job?, false)
+      else
+        opts
+      end
 
     opts =
       if step.timeout_seconds,
@@ -194,5 +219,11 @@ defmodule AshJobs.Transformers.IntegrateOban do
       operator?: true,
       relationship_path: []
     }
+  end
+
+  defp is_error_handler?(step) do
+    # Error handlers use on_complete and have no on_success
+    # Regular steps use on_success
+    step.on_complete != nil && step.on_success == nil
   end
 end

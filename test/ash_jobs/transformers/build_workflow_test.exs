@@ -190,7 +190,7 @@ defmodule AshJobs.Transformers.BuildWorkflowTest do
             defaults [:read]
 
             create :create do
-              accept [:name]
+              accept []
             end
 
             update :do_work do
@@ -228,11 +228,11 @@ defmodule AshJobs.Transformers.BuildWorkflowTest do
             defaults [:read]
 
             create :create do
-              accept [:name]
+              accept []
             end
 
             create :special_create do
-              accept [:name, :value]
+              accept []
             end
 
             update :do_work do
@@ -272,7 +272,7 @@ defmodule AshJobs.Transformers.BuildWorkflowTest do
             defaults [:read]
 
             create :create do
-              accept [:name]
+              accept []
 
               change fn changeset, _context ->
                 Ash.Changeset.force_change_attribute(changeset, :state, :process)
@@ -315,7 +315,7 @@ defmodule AshJobs.Transformers.BuildWorkflowTest do
             defaults [:read]
 
             create :create do
-              accept [:name]
+              accept []
             end
 
             update :do_work do
@@ -355,6 +355,11 @@ defmodule AshJobs.Transformers.BuildWorkflowTest do
               on_success :completed
               on_error :handle_error
             end
+
+            step :handle_error do
+              action :handle_error
+              on_complete :failed
+            end
           end
 
           actions do
@@ -390,7 +395,7 @@ defmodule AshJobs.Transformers.BuildWorkflowTest do
             defaults [:read]
 
             create :create do
-              accept [:name]
+              accept []
             end
           end
         """)
@@ -414,7 +419,7 @@ defmodule AshJobs.Transformers.BuildWorkflowTest do
             defaults [:read]
 
             create :create do
-              accept [:name]
+              accept []
             end
           end
         """)
@@ -438,7 +443,13 @@ defmodule AshJobs.Transformers.BuildWorkflowTest do
             defaults [:read]
 
             create :create do
-              accept [:name]
+              accept []
+            end
+
+            update :notify_error do
+              require_atomic? false
+              argument :error, :term, allow_nil?: true
+              accept []
             end
           end
         """)
@@ -492,7 +503,7 @@ defmodule AshJobs.Transformers.BuildWorkflowTest do
       assert has_change
     end
 
-    test "handles resources with defaults :all for actions" do
+    test "handles resources with explicit default actions" do
       {:ok, resource} =
         compile_resource("""
           workflow do
@@ -503,7 +514,7 @@ defmodule AshJobs.Transformers.BuildWorkflowTest do
           end
 
           actions do
-            defaults [:all]
+            defaults [:create, :read, :update, :destroy]
 
             update :do_work do
               accept []
@@ -563,13 +574,18 @@ defmodule AshJobs.Transformers.BuildWorkflowTest do
               on_success :completed
               on_error :handle_error
             end
+
+            step :handle_error do
+              action :handle_error
+              on_complete :failed
+            end
           end
 
           actions do
             defaults [:read]
 
             create :create do
-              accept [:name]
+              accept []
             end
 
             update :do_work do
@@ -610,13 +626,23 @@ defmodule AshJobs.Transformers.BuildWorkflowTest do
               on_success :completed
               on_error :handle_two_error
             end
+
+            step :handle_one_error do
+              action :handle_one_error
+              on_complete :failed
+            end
+
+            step :handle_two_error do
+              action :handle_two_error
+              on_complete :failed
+            end
           end
 
           actions do
             defaults [:read]
 
             create :create do
-              accept [:name]
+              accept []
             end
 
             update :process_one do

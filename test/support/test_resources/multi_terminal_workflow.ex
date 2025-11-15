@@ -124,5 +124,6 @@ defmodule AshJobs.TestResources.MultiTerminalWorkflow do
     define :do_work
     define :notify_error
     define :do_cancel
+    define :get_by_id, action: :read, get_by: [:id]
   end
 end

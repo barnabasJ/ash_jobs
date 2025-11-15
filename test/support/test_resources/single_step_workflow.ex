@@ -60,5 +60,6 @@ defmodule AshJobs.TestResources.SingleStepWorkflow do
   code_interface do
     define :create
     define :process
+    define :get_by_id, action: :read, get_by: [:id]
   end
 end

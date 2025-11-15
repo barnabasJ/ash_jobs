@@ -105,5 +105,6 @@ defmodule AshJobs.TestResources.LongRunningWorkflow do
     define :process_quick
     define :process_slow
     define :process_retry
+    define :get_by_id, action: :read, get_by: [:id]
   end
 end

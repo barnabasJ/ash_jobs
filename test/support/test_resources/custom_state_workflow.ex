@@ -82,5 +82,6 @@ defmodule AshJobs.TestResources.CustomStateWorkflow do
     define :create
     define :setup
     define :do_work
+    define :get_by_id, action: :read, get_by: [:id]
   end
 end

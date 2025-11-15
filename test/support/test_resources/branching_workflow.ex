@@ -195,5 +195,6 @@ defmodule AshJobs.TestResources.BranchingWorkflow do
     define :notify_start_error
     define :notify_step_one_error
     define :notify_step_two_error
+    define :get_by_id, action: :read, get_by: [:id]
   end
 end

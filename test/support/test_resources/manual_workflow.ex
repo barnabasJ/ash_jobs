@@ -81,5 +81,6 @@ defmodule AshJobs.TestResources.ManualWorkflow do
     define :create
     define :process_auto
     define :process_manual
+    define :get_by_id, action: :read, get_by: [:id]
   end
 end

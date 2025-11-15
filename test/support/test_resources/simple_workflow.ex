@@ -60,5 +60,6 @@ defmodule AshJobs.TestResources.SimpleWorkflow do
   code_interface do
     define :create
     define :do_work
+    define :get_by_id, action: :read, get_by: [:id]
   end
 end

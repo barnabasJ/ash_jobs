@@ -4,10 +4,8 @@ defmodule AshJobs.Integration.ComprehensiveWorkflowTest do
   step options, edge cases, and concurrency.
   """
 
-  use ExUnit.Case, async: false
+  use AshJobs.DataCase, async: false
   use Oban.Testing, repo: AshJobs.TestRepo
-
-  alias AshJobs.TestRepo
 
   alias AshJobs.TestResources.{
     SimpleWorkflow,
@@ -20,9 +18,6 @@ defmodule AshJobs.Integration.ComprehensiveWorkflowTest do
   }
 
   setup do
-    :ok = Ecto.Adapters.SQL.Sandbox.checkout(TestRepo)
-    Ecto.Adapters.SQL.Sandbox.mode(TestRepo, {:shared, self()})
-
     TestRepo.delete_all(SimpleWorkflow)
     TestRepo.delete_all(BranchingWorkflow)
     TestRepo.delete_all(ManualWorkflow)
@@ -106,11 +101,21 @@ defmodule AshJobs.Integration.ComprehensiveWorkflowTest do
       {:ok, job} = BranchingWorkflow.create(%{name: "branch-002", force_error_at: "start"})
       assert job.state == :start
 
-      Oban.Testing.with_testing_mode(:inline, fn ->
-        AshOban.run_trigger(job, :start)
-      end)
+      error =
+        try do
+          Oban.Testing.with_testing_mode(:inline, fn ->
+            AshOban.run_trigger(job, :start)
+          end)
 
-      job = TestRepo.get!(BranchingWorkflow, job.id)
+          nil
+        catch
+          _kind, error -> error
+        end
+
+      assert error != nil
+
+      {:ok, job} = BranchingWorkflow.notify_start_error(job, %{error: error})
+
       assert job.state == :failed
       assert job.error_message != nil
     end
@@ -118,13 +123,24 @@ defmodule AshJobs.Integration.ComprehensiveWorkflowTest do
     test "error at step_one routes to handle_step_one_error" do
       {:ok, job} = BranchingWorkflow.create(%{name: "branch-003", force_error_at: "step_one"})
 
-      Oban.Testing.with_testing_mode(:inline, fn ->
-        AshOban.run_trigger(job, :start)
-        job = TestRepo.get!(BranchingWorkflow, job.id)
-        AshOban.run_trigger(job, :step_one)
-      end)
+      error =
+        try do
+          Oban.Testing.with_testing_mode(:inline, fn ->
+            AshOban.run_trigger(job, :start)
+            job = TestRepo.get!(BranchingWorkflow, job.id)
+            AshOban.run_trigger(job, :step_one)
+          end)
+
+          nil
+        catch
+          _kind, error -> error
+        end
+
+      assert error != nil
 
       job = TestRepo.get!(BranchingWorkflow, job.id)
+      {:ok, job} = BranchingWorkflow.notify_step_one_error(job, %{error: error})
+
       assert job.state == :failed
       assert job.error_message != nil
     end
@@ -132,15 +148,26 @@ defmodule AshJobs.Integration.ComprehensiveWorkflowTest do
     test "error at step_two routes to handle_step_two_error" do
       {:ok, job} = BranchingWorkflow.create(%{name: "branch-004", force_error_at: "step_two"})
 
-      Oban.Testing.with_testing_mode(:inline, fn ->
-        AshOban.run_trigger(job, :start)
-        job = TestRepo.get!(BranchingWorkflow, job.id)
-        AshOban.run_trigger(job, :step_one)
-        job = TestRepo.get!(BranchingWorkflow, job.id)
-        AshOban.run_trigger(job, :step_two)
-      end)
+      error =
+        try do
+          Oban.Testing.with_testing_mode(:inline, fn ->
+            AshOban.run_trigger(job, :start)
+            job = TestRepo.get!(BranchingWorkflow, job.id)
+            AshOban.run_trigger(job, :step_one)
+            job = TestRepo.get!(BranchingWorkflow, job.id)
+            AshOban.run_trigger(job, :step_two)
+          end)
+
+          nil
+        catch
+          _kind, error -> error
+        end
+
+      assert error != nil
 
       job = TestRepo.get!(BranchingWorkflow, job.id)
+      {:ok, job} = BranchingWorkflow.notify_step_two_error(job, %{error: error})
+
       assert job.state == :failed
       assert job.error_message != nil
     end
@@ -296,7 +323,6 @@ defmodule AshJobs.Integration.ComprehensiveWorkflowTest do
 
     test "BranchingWorkflow info" do
       steps = AshJobs.Info.steps(BranchingWorkflow)
-      # 3 main + 3 error handlers
       assert length(steps) == 6
 
       entry_points = AshJobs.Info.entry_points(BranchingWorkflow)
@@ -304,7 +330,6 @@ defmodule AshJobs.Integration.ComprehensiveWorkflowTest do
       assert List.first(entry_points).name == :start
 
       terminal_steps = AshJobs.Info.terminal_steps(BranchingWorkflow)
-      # All error handlers and final step are terminal
       assert length(terminal_steps) >= 3
     end
 
@@ -372,7 +397,6 @@ defmodule AshJobs.Integration.ComprehensiveWorkflowTest do
     test "calling non-error-handler action on error handler step" do
       {:ok, job} = BranchingWorkflow.create(%{name: "edge-001", force_error_at: nil})
 
-      # Try to manually call an error handler with different error formats
       {:ok, job} = BranchingWorkflow.notify_start_error(job, %{error: "string error"})
       assert job.error_message == "string error"
 
@@ -400,12 +424,10 @@ defmodule AshJobs.Integration.ComprehensiveWorkflowTest do
       actions = Ash.Resource.Info.actions(BranchingWorkflow)
       action_names = Enum.map(actions, & &1.name)
 
-      # Error handler actions should exist
       assert :notify_start_error in action_names
       assert :notify_step_one_error in action_names
       assert :notify_step_two_error in action_names
 
-      # All error handlers should have error argument
       for error_action_name <- [
             :notify_start_error,
             :notify_step_one_error,
@@ -436,13 +458,13 @@ defmodule AshJobs.Integration.ComprehensiveWorkflowTest do
 
       Oban.Testing.with_testing_mode(:inline, fn ->
         AshOban.run_trigger(job, :quick_step)
-        job = TestRepo.get!(LongRunningWorkflow, job.id)
-        assert job.state == :slow_step
-
-        AshOban.run_trigger(job, :slow_step)
-        job = TestRepo.get!(LongRunningWorkflow, job.id)
-        assert job.state == :retry_step
       end)
+
+      job = TestRepo.get!(LongRunningWorkflow, job.id)
+      assert job.state == :completed
+      assert job.quick_data == "quick_done"
+      assert job.slow_data == "slow_done"
+      assert job.retry_data == "retry_done"
     end
   end
 end

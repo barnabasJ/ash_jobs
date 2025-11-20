@@ -75,25 +75,31 @@ defmodule AshJobs.Transformers.GenerateErrorActions do
   end
 
   defp add_error_action(dsl_state, action_name) do
-    # Build error handler action
+    # Build error handler action using Spark entity builders
     # Note: State transitions are handled by AshJobs.Change module
     # which routes to terminal states via on_complete
-    action = %Ash.Resource.Actions.Update{
-      name: action_name,
-      type: :update,
-      accept: [],
-      require_atomic?: false,
-      arguments: [
-        %Ash.Resource.Actions.Argument{
-          name: :error,
-          type: :term,
-          allow_nil?: true
-        }
-      ],
-      changes: []
-    }
 
-    # Add action to DSL state using Spark.Dsl.Transformer
-    Spark.Dsl.Transformer.add_entity(dsl_state, [:actions], action)
+    # First, build the error argument entity
+    with {:ok, error_argument} <-
+           Ash.Resource.Builder.build_action_argument(
+             :error,
+             :term,
+             allow_nil?: true
+           ),
+         # Then build the update action entity with the argument
+         {:ok, action} <-
+           Ash.Resource.Builder.build_action(
+             :update,
+             action_name,
+             accept: [],
+             require_atomic?: false,
+             arguments: [error_argument]
+           ) do
+      # Add action to DSL state using Spark.Dsl.Transformer
+      Spark.Dsl.Transformer.add_entity(dsl_state, [:actions], action)
+    else
+      {:error, error} ->
+        raise "Failed to build error handler action #{action_name}: #{inspect(error)}"
+    end
   end
 end

@@ -104,7 +104,8 @@ defmodule AshJobs.Transformers.GenerateErrorActionsTest do
       assert error_action
       error_arg = Enum.find(error_action.arguments, &(&1.name == :error))
       assert error_arg
-      assert error_arg.type == :term
+      # Entity builder normalizes :term to Ash.Type.Term module
+      assert error_arg.type == Ash.Type.Term
       assert error_arg.allow_nil? == true
     end
 

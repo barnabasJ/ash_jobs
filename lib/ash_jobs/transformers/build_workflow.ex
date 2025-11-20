@@ -75,22 +75,28 @@ defmodule AshJobs.Transformers.BuildWorkflow do
         dsl_state
 
       action ->
-        # Create a proper Ash.Resource.Change struct
-        change_struct = %Ash.Resource.Change{
-          change: {AshJobs.Change, []},
-          on: [:create, :update],
-          only_when_valid?: false,
-          description: "AshJobs workflow routing"
-        }
+        # Build a proper Ash.Resource.Change entity using Spark's entity builder
+        # This provides schema validation, metadata tracking, and transformation
+        case Ash.Resource.Builder.build_change(
+               {AshJobs.Change, []},
+               on: [:create, :update],
+               only_when_valid?: false,
+               description: "AshJobs workflow routing"
+             ) do
+          {:ok, change_struct} ->
+            # Add our change to the action's changes list
+            updated_action = %{action | changes: action.changes ++ [change_struct]}
 
-        # Add our change to the action's changes list
-        updated_action = %{action | changes: action.changes ++ [change_struct]}
+            # Replace the action in the DSL state
+            # First remove the old action, then add the updated one
+            dsl_state
+            |> remove_action(action_name)
+            |> Spark.Dsl.Transformer.add_entity([:actions], updated_action)
 
-        # Replace the action in the DSL state
-        # First remove the old action, then add the updated one
-        dsl_state
-        |> remove_action(action_name)
-        |> Spark.Dsl.Transformer.add_entity([:actions], updated_action)
+          {:error, error} ->
+            # This shouldn't happen with valid options, but handle it gracefully
+            raise "Failed to build change entity: #{inspect(error)}"
+        end
     end
   end
 

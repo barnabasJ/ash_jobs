@@ -34,10 +34,12 @@ defmodule AshJobs.Transformers.BuildWorkflow do
   end
 
   defp inject_change_module(dsl_state, steps) do
-    # Get action names from ALL workflow steps
-    # All steps (including error handlers) need AshJobs.Change for routing
+    # Get action names from regular steps only (not parallel_steps)
+    # Parallel steps don't have actions - they coordinate branch resources
+    # All regular steps (including error handlers) need AshJobs.Change for routing
     action_names =
       steps
+      |> Enum.reject(&match?(%AshJobs.Dsl.Entities.ParallelStep{}, &1))
       |> Enum.map(& &1.action)
       |> Enum.uniq()
 

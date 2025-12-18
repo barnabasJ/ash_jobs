@@ -82,17 +82,32 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
     state_attr =
       Spark.Dsl.Transformer.get_option(dsl_state, [:workflow], :state_attribute) || :state
 
-    # Collect all possible states (step names + terminal states)
+    # Separate regular steps from parallel_steps
+    regular_steps = Enum.reject(workflow_steps, &is_parallel_step?/1)
+    parallel_steps = Enum.filter(workflow_steps, &is_parallel_step?/1)
+
+    # Collect all possible states (step names + parallel_step names + terminal states)
     step_states = Enum.map(workflow_steps, & &1.name)
     terminal_states = [:completed, :failed, :cancelled]
 
-    # Collect target states that are actually steps or terminal states
-    referenced_states =
-      workflow_steps
+    # Collect target states from regular steps
+    regular_referenced =
+      regular_steps
       |> Enum.flat_map(fn step ->
         [step.on_success, step.on_error, step.on_complete]
         |> Enum.reject(&is_nil/1)
       end)
+
+    # Collect target states from parallel_steps (on_complete, on_error)
+    parallel_referenced =
+      parallel_steps
+      |> Enum.flat_map(fn ps ->
+        [ps.on_complete, ps.on_error]
+        |> Enum.reject(&is_nil/1)
+      end)
+
+    referenced_states =
+      (regular_referenced ++ parallel_referenced)
       |> Enum.uniq()
       |> Enum.filter(fn state ->
         state in step_states or state in terminal_states
@@ -161,9 +176,13 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
   end
 
   defp generate_transitions(dsl_state, workflow_steps) do
-    # Collect all transitions from workflow steps
-    transitions =
-      workflow_steps
+    # Separate regular steps from parallel_steps
+    regular_steps = Enum.reject(workflow_steps, &is_parallel_step?/1)
+    parallel_steps = Enum.filter(workflow_steps, &is_parallel_step?/1)
+
+    # Collect transitions from regular steps
+    regular_transitions =
+      regular_steps
       |> Enum.flat_map(fn step ->
         transitions = []
 
@@ -189,14 +208,32 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
 
         transitions
       end)
-      # Group transitions by {action, to} and combine their from states
+
+    # Collect transitions from parallel_steps
+    # Parallel steps use the generated callback action (handle_{name}_complete)
+    parallel_transitions =
+      parallel_steps
+      |> Enum.flat_map(fn ps ->
+        callback_action = :"handle_#{ps.name}_complete"
+
+        # Add on_complete transition (from parallel step to completion target)
+        if ps.on_complete do
+          [%{action: callback_action, from: [ps.name], to: [ps.on_complete]}]
+        else
+          []
+        end
+      end)
+
+    # Combine and group transitions by {action, to} to combine their from states
+    all_transitions =
+      (regular_transitions ++ parallel_transitions)
       |> Enum.group_by(fn t -> {t.action, List.first(t.to)} end, fn t -> List.first(t.from) end)
       |> Enum.map(fn {{action, to}, froms} ->
         %{action: action, from: Enum.uniq(froms), to: [to]}
       end)
 
     # Add each transition
-    Enum.reduce(transitions, dsl_state, fn transition, acc_state ->
+    Enum.reduce(all_transitions, dsl_state, fn transition, acc_state ->
       {:ok, transition_entity} =
         Spark.Dsl.Transformer.build_entity(
           AshStateMachine,
@@ -213,5 +250,10 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
         transition_entity
       )
     end)
+  end
+
+  defp is_parallel_step?(entity) do
+    # Parallel steps are a different entity type that coordinate branches
+    match?(%AshJobs.Dsl.Entities.ParallelStep{}, entity)
   end
 end

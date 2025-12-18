@@ -30,14 +30,20 @@ defmodule AshJobs.Verifiers.ValidateWorkflow do
 
   def verify(dsl_state) do
     workflow = Spark.Dsl.Extension.get_entities(dsl_state, [:workflow])
-    steps = workflow
 
-    if Enum.any?(steps) do
+    # Separate regular steps from parallel_steps
+    # Parallel steps have different fields (on_complete, on_error but no on_success, action)
+    regular_steps = Enum.reject(workflow, &is_parallel_step?/1)
+    parallel_steps = Enum.filter(workflow, &is_parallel_step?/1)
+
+    if Enum.any?(workflow) do
       workflow_config =
         Spark.Dsl.Extension.get_opt(dsl_state, [:workflow], :state_attribute, :state)
 
       workflow_struct = %{
-        steps: steps,
+        steps: regular_steps,
+        parallel_steps: parallel_steps,
+        all_step_names: Enum.map(workflow, & &1.name),
         state_attribute: workflow_config
       }
 
@@ -53,13 +59,18 @@ defmodule AshJobs.Verifiers.ValidateWorkflow do
     end
   end
 
+  defp is_parallel_step?(entity) do
+    match?(%AshJobs.Dsl.Entities.ParallelStep{}, entity)
+  end
+
   # Validation Functions
 
   defp validate_step_references(workflow) do
-    all_steps = MapSet.new(Enum.map(workflow.steps, & &1.name))
+    all_steps = MapSet.new(workflow.all_step_names)
     valid_targets = MapSet.union(all_steps, MapSet.new(@terminal_states))
 
-    invalid_refs =
+    # Check regular steps (have on_success, on_error, on_complete)
+    regular_invalid_refs =
       workflow.steps
       |> Enum.flat_map(fn step ->
         targets =
@@ -69,9 +80,26 @@ defmodule AshJobs.Verifiers.ValidateWorkflow do
         targets
         |> Enum.reject(&MapSet.member?(valid_targets, &1))
         |> Enum.map(fn invalid ->
-          {step.name, invalid, get_routing_type(step, invalid)}
+          {step.name, invalid, get_routing_type_for_step(step, invalid)}
         end)
       end)
+
+    # Check parallel steps (have on_complete, on_error but NOT on_success)
+    parallel_invalid_refs =
+      workflow.parallel_steps
+      |> Enum.flat_map(fn step ->
+        targets =
+          [step.on_complete, step.on_error]
+          |> Enum.reject(&is_nil/1)
+
+        targets
+        |> Enum.reject(&MapSet.member?(valid_targets, &1))
+        |> Enum.map(fn invalid ->
+          {step.name, invalid, get_routing_type_for_parallel_step(step, invalid)}
+        end)
+      end)
+
+    invalid_refs = regular_invalid_refs ++ parallel_invalid_refs
 
     if Enum.empty?(invalid_refs) do
       :ok
@@ -97,11 +125,19 @@ defmodule AshJobs.Verifiers.ValidateWorkflow do
     end
   end
 
-  defp get_routing_type(step, target) do
+  defp get_routing_type_for_step(step, target) do
     cond do
       step.on_success == target -> "on_success"
       step.on_error == target -> "on_error"
       step.on_complete == target -> "on_complete"
+      true -> "unknown"
+    end
+  end
+
+  defp get_routing_type_for_parallel_step(step, target) do
+    cond do
+      step.on_complete == target -> "on_complete"
+      step.on_error == target -> "on_error"
       true -> "unknown"
     end
   end
@@ -131,10 +167,23 @@ defmodule AshJobs.Verifiers.ValidateWorkflow do
   end
 
   defp build_dependency_graph(workflow) do
-    workflow.steps
-    |> Enum.reduce(%{}, fn step, graph ->
+    # Build graph from regular steps
+    regular_graph =
+      workflow.steps
+      |> Enum.reduce(%{}, fn step, graph ->
+        successors =
+          [step.on_success, step.on_error, step.on_complete]
+          |> Enum.reject(&is_nil/1)
+          |> Enum.reject(&(&1 in @terminal_states))
+
+        Map.put(graph, step.name, successors)
+      end)
+
+    # Add parallel steps (which have on_complete, on_error but not on_success)
+    workflow.parallel_steps
+    |> Enum.reduce(regular_graph, fn step, graph ->
       successors =
-        [step.on_success, step.on_error, step.on_complete]
+        [step.on_complete, step.on_error]
         |> Enum.reject(&is_nil/1)
         |> Enum.reject(&(&1 in @terminal_states))
 
@@ -236,6 +285,7 @@ defmodule AshJobs.Verifiers.ValidateWorkflow do
     existing_actions = Ash.Resource.Info.actions(dsl_state)
     existing_action_names = MapSet.new(existing_actions, & &1.name)
 
+    # Only regular steps have actions - parallel_steps don't have actions
     missing_actions =
       workflow.steps
       |> Enum.reject(fn step ->
@@ -266,15 +316,26 @@ defmodule AshJobs.Verifiers.ValidateWorkflow do
 
   defp validate_entry_point(workflow) do
     # Find steps with no incoming references
-    all_successors =
+    # Include both regular steps and parallel steps successors
+    regular_successors =
       workflow.steps
       |> Enum.flat_map(fn step -> [step.on_success, step.on_error, step.on_complete] end)
+
+    parallel_successors =
+      workflow.parallel_steps
+      |> Enum.flat_map(fn step -> [step.on_complete, step.on_error] end)
+
+    all_successors =
+      (regular_successors ++ parallel_successors)
       |> Enum.reject(&is_nil/1)
       |> Enum.reject(&(&1 in @terminal_states))
       |> MapSet.new()
 
+    # Check both regular and parallel steps for entry points
+    all_steps = workflow.steps ++ workflow.parallel_steps
+
     entry_points =
-      workflow.steps
+      all_steps
       |> Enum.reject(fn step -> MapSet.member?(all_successors, step.name) end)
 
     if Enum.empty?(entry_points) do
@@ -287,7 +348,7 @@ defmodule AshJobs.Verifiers.ValidateWorkflow do
          At least one step must have no incoming on_success/on_error/on_complete references.
          This step will be the starting point of the workflow.
 
-         Current steps: #{inspect(Enum.map(workflow.steps, & &1.name))}
+         Current steps: #{inspect(workflow.all_step_names)}
          All steps have incoming references - this creates a circular dependency with no entry point.
          """
        )}
@@ -298,15 +359,24 @@ defmodule AshJobs.Verifiers.ValidateWorkflow do
 
   defp validate_reachability(workflow) do
     # Find entry points
-    all_successors =
+    regular_successors =
       workflow.steps
       |> Enum.flat_map(fn step -> [step.on_success, step.on_error, step.on_complete] end)
+
+    parallel_successors =
+      workflow.parallel_steps
+      |> Enum.flat_map(fn step -> [step.on_complete, step.on_error] end)
+
+    all_successors =
+      (regular_successors ++ parallel_successors)
       |> Enum.reject(&is_nil/1)
       |> Enum.reject(&(&1 in @terminal_states))
       |> MapSet.new()
 
+    all_steps = workflow.steps ++ workflow.parallel_steps
+
     entry_points =
-      workflow.steps
+      all_steps
       |> Enum.reject(fn step -> MapSet.member?(all_successors, step.name) end)
       |> Enum.map(& &1.name)
 
@@ -314,8 +384,8 @@ defmodule AshJobs.Verifiers.ValidateWorkflow do
     graph = build_dependency_graph(workflow)
     reachable = compute_reachable(graph, entry_points)
 
-    all_steps = MapSet.new(Enum.map(workflow.steps, & &1.name))
-    unreachable = MapSet.difference(all_steps, reachable)
+    all_step_names = MapSet.new(workflow.all_step_names)
+    unreachable = MapSet.difference(all_step_names, reachable)
 
     if MapSet.size(unreachable) == 0 do
       :ok

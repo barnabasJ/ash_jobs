@@ -1,0 +1,133 @@
+defmodule AshJobs.Transformers.IntegrateParallelRegions do
+  @moduledoc """
+  Generates parallel_region DSL section for AshStateMachine based on parallel_step definitions.
+
+  This transformer translates AshJobs parallel_step entities into AshStateMachine
+  parallel_region entities, enabling concurrent branch execution.
+
+  ## Translation
+
+  For a parallel_step like:
+      workflow do
+        parallel_step :process_order do
+          completion_strategy :all
+          on_complete :finalize
+
+          branch :payment, PaymentWorkflow
+          branch :inventory, InventoryWorkflow
+        end
+      end
+
+  Generates:
+      state_machine do
+        parallel_regions do
+          parallel_region :process_order, :finalize do
+            completion_strategy :all
+            on_complete :handle_process_order_complete
+
+            region :payment, PaymentWorkflow
+            region :inventory, InventoryWorkflow
+          end
+        end
+      end
+
+  ## Completion Handling
+
+  The on_complete callback action is auto-generated with a naming convention:
+  `handle_{parallel_step_name}_complete`
+
+  This action is responsible for:
+  1. Checking if completion strategy is satisfied
+  2. Transitioning to the on_complete state if ready
+  """
+
+  use Spark.Dsl.Transformer
+
+  # Run after IntegrateStateMachine but before AshStateMachine processes parallel_regions
+  def after?(AshJobs.Transformers.IntegrateStateMachine), do: true
+  def after?(_), do: false
+
+  def before?(AshStateMachine.Transformers.AddParallelRegionRelationships), do: true
+  def before?(AshStateMachine.Verifiers.VerifyParallelRegions), do: true
+  def before?(_), do: false
+
+  def transform(dsl_state) do
+    # Get workflow entities
+    workflow_entities = Spark.Dsl.Extension.get_entities(dsl_state, [:workflow])
+
+    # Filter to parallel_steps only
+    parallel_steps = Enum.filter(workflow_entities, &is_parallel_step?/1)
+
+    if Enum.any?(parallel_steps) do
+      # Check if parallel_regions already exist
+      if has_parallel_regions?(dsl_state) do
+        # User defined their own parallel_regions, skip generation
+        {:ok, dsl_state}
+      else
+        # Generate parallel_regions for each parallel_step
+        dsl_state = generate_parallel_regions(dsl_state, parallel_steps)
+        {:ok, dsl_state}
+      end
+    else
+      # No parallel_steps defined, skip
+      {:ok, dsl_state}
+    end
+  end
+
+  defp is_parallel_step?(entity) do
+    match?(%AshJobs.Dsl.Entities.ParallelStep{}, entity)
+  end
+
+  defp has_parallel_regions?(dsl_state) do
+    parallel_regions =
+      Spark.Dsl.Extension.get_entities(dsl_state, [:state_machine, :parallel_regions])
+
+    parallel_regions != nil && length(parallel_regions) > 0
+  end
+
+  defp generate_parallel_regions(dsl_state, parallel_steps) do
+    Enum.reduce(parallel_steps, dsl_state, fn parallel_step, acc_state ->
+      add_parallel_region(acc_state, parallel_step)
+    end)
+  end
+
+  defp add_parallel_region(dsl_state, parallel_step) do
+    # Build region entities from branches
+    regions =
+      Enum.map(parallel_step.branches, fn branch ->
+        {:ok, region} =
+          Spark.Dsl.Transformer.build_entity(
+            AshStateMachine,
+            [:state_machine, :parallel_regions, :parallel_region],
+            :region,
+            name: branch.name,
+            resource: branch.resource
+          )
+
+        region
+      end)
+
+    # Generate the on_complete action name
+    on_complete_action = :"handle_#{parallel_step.name}_complete"
+
+    # Build the parallel_region entity
+    {:ok, parallel_region} =
+      Spark.Dsl.Transformer.build_entity(
+        AshStateMachine,
+        [:state_machine, :parallel_regions],
+        :parallel_region,
+        enter_state: parallel_step.name,
+        exit_state: parallel_step.on_complete,
+        completion_strategy: parallel_step.completion_strategy,
+        on_complete: on_complete_action,
+        regions: regions
+      )
+
+    # Add the parallel_region to the DSL state
+    Spark.Dsl.Transformer.add_entity(
+      dsl_state,
+      [:state_machine, :parallel_regions],
+      parallel_region
+    )
+  end
+end

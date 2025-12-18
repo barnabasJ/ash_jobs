@@ -266,5 +266,64 @@ defmodule AshJobs.Transformers.IntegrateObanTest do
 
       assert load_trigger.on_error == :handle_error
     end
+
+    test "generates triggers with custom where clause combined with state filter" do
+      {:ok, resource} =
+        compile_resource_with_oban("""
+          attributes do
+            uuid_primary_key :id
+            attribute :priority, :atom, allow_nil?: true
+          end
+
+          workflow do
+            step :process_priority do
+              action :process_order
+              on_success :completed
+              where expr(priority == :high)
+            end
+          end
+
+          actions do
+            defaults [:read]
+            update :process_order, do: accept([])
+          end
+        """)
+
+      triggers = AshOban.Info.oban_triggers(resource)
+      trigger = Enum.find(triggers, &(&1.name == :process_priority))
+
+      # The where should be a BooleanExpression combining state and custom where with `and`
+      assert %Ash.Query.BooleanExpression{op: :and} = trigger.where
+
+      # Left side should be the state filter
+      assert %Ash.Query.Call{name: :==} = trigger.where.left
+
+      # Right side should be the custom where (priority == :high)
+      assert %Ash.Query.Call{name: :==} = trigger.where.right
+    end
+
+    test "step without custom where has only state filter" do
+      {:ok, resource} =
+        compile_resource_with_oban("""
+          workflow do
+            step :load_order do
+              action :load_order
+              on_success :completed
+            end
+          end
+
+          actions do
+            defaults [:read]
+            update :load_order, do: accept([])
+          end
+        """)
+
+      triggers = AshOban.Info.oban_triggers(resource)
+      trigger = Enum.find(triggers, &(&1.name == :load_order))
+
+      # Without custom where, it should be just a Call (state == :load_order)
+      assert %Ash.Query.Call{name: :==} = trigger.where
+      refute match?(%Ash.Query.BooleanExpression{}, trigger.where)
+    end
   end
 end

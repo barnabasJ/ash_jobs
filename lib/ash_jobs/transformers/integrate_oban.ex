@@ -23,6 +23,12 @@ defmodule AshJobs.Transformers.IntegrateOban do
           retry_attempts 3
         end
 
+        step :process_priority do
+          action :process_priority_order
+          on_success :completed
+          where expr(priority == :high)  # Additional filter
+        end
+
         step :await_confirmation do
           action :send_confirmation
           trigger false  # Manual step
@@ -39,6 +45,12 @@ defmodule AshJobs.Transformers.IntegrateOban do
             on_error :handle_error
             queue :order_processing
             max_attempts 3
+          end
+
+          trigger :process_priority do
+            action :process_priority_order
+            # Combined: state filter AND custom where
+            where expr(state == :process_priority and priority == :high)
           end
 
           # No trigger for await_confirmation (trigger: false)
@@ -104,11 +116,13 @@ defmodule AshJobs.Transformers.IntegrateOban do
     existing_names = MapSet.union(existing_trigger_names, existing_scheduled_names)
 
     # Generate triggers for automatic steps only (trigger != false)
+    # Skip parallel_steps (they don't have actions, they coordinate branches)
     # Skip error handler steps (they use on_complete, not on_success)
     # Skip steps that already have triggers defined
     # Also deduplicate by step name (in case workflow_steps contains duplicates)
     triggers =
       workflow_steps
+      |> Enum.reject(&is_parallel_step?/1)
       |> Enum.reject(fn step -> step.trigger == false end)
       |> Enum.reject(&is_error_handler?/1)
       |> Enum.uniq_by(& &1.name)
@@ -127,7 +141,9 @@ defmodule AshJobs.Transformers.IntegrateOban do
 
   defp build_trigger(step, state_attr, resource_module, workflow_steps) do
     # Build where expression: state_attr == step_name
-    where_expr = build_where_expr(state_attr, step.name)
+    # If step has a custom where, combine with state filter using `and`
+    state_where = build_state_where_expr(state_attr, step.name)
+    where_expr = combine_where_exprs(state_where, step.where)
 
     # Generate module names for worker and scheduler
     worker_module = build_module_name(resource_module, step.name, :Worker)
@@ -204,7 +220,7 @@ defmodule AshJobs.Transformers.IntegrateOban do
     Module.concat([resource_module, AshOban, type, step_module_name])
   end
 
-  defp build_where_expr(state_attr, step_name) do
+  defp build_state_where_expr(state_attr, step_name) do
     # Build Ash filter expression: state_attr == step_name
     # Create proper structs instead of map literals
     ref = %Ash.Query.Ref{
@@ -221,9 +237,25 @@ defmodule AshJobs.Transformers.IntegrateOban do
     }
   end
 
+  defp combine_where_exprs(state_where, nil), do: state_where
+
+  defp combine_where_exprs(state_where, custom_where) do
+    # Combine state filter with custom where using `and`
+    %Ash.Query.BooleanExpression{
+      op: :and,
+      left: state_where,
+      right: custom_where
+    }
+  end
+
   defp is_error_handler?(step) do
     # Error handlers use on_complete and have no on_success
     # Regular steps use on_success
     step.on_complete != nil && step.on_success == nil
+  end
+
+  defp is_parallel_step?(entity) do
+    # Parallel steps are a different entity type that coordinate branches
+    match?(%AshJobs.Dsl.Entities.ParallelStep{}, entity)
   end
 end

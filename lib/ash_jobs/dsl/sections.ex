@@ -6,7 +6,7 @@ defmodule AshJobs.Dsl.Sections do
   and step definitions.
   """
 
-  alias AshJobs.Dsl.Entities.Step
+  alias AshJobs.Dsl.Entities.{Step, ParallelStep, Branch}
 
   @doc """
   Defines the workflow section.
@@ -52,7 +52,26 @@ defmodule AshJobs.Dsl.Sections do
           target: Step,
           args: [:name],
           schema: Step.schema(),
+          imports: [Ash.Expr],
           describe: "Defines a step in the workflow"
+        },
+        %Spark.Dsl.Entity{
+          name: :parallel_step,
+          target: ParallelStep,
+          args: [:name],
+          schema: ParallelStep.schema(),
+          entities: [
+            branches: [
+              %Spark.Dsl.Entity{
+                name: :branch,
+                target: Branch,
+                args: [:name, :resource],
+                schema: Branch.schema(),
+                describe: "Defines a branch workflow resource"
+              }
+            ]
+          ],
+          describe: "Defines a parallel step coordinating multiple concurrent branches"
         }
       ],
       describe: """

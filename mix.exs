@@ -32,10 +32,10 @@ defmodule AshJobs.MixProject do
   defp deps do
     [
       # Core Ash framework
-      {:ash, "~> 3.7"},
+      {:ash, "~> 3.9"},
       {:spark, "~> 2.3"},
-      {:ash_state_machine, "~> 0.2"},
-      {:ash_oban, "~> 0.4"},
+      {:ash_state_machine, path: "../ash_state_machine", override: true},
+      {:ash_oban, "~> 0.7"},
       {:oban, "~> 2.20"},
 
       # Development & Testing

@@ -14,6 +14,7 @@ defmodule AshJobs.Dsl.Entities.Step do
   - `:on_complete` (atom) - Terminal state (alternative to on_success for error handlers)
   - `:queue` (atom) - Oban queue name (defaults to :default)
   - `:trigger` (boolean) - Whether to create Oban trigger (defaults to true, set false for manual steps)
+  - `:where` (Ash expression) - Additional filter expression combined with state filter using `and`
   - `:timeout_seconds` (integer) - Step timeout in seconds
   - `:retry_attempts` (integer) - Number of retry attempts on failure
   - `:retry_delay_seconds` (integer) - Delay between retries in seconds
@@ -26,6 +27,13 @@ defmodule AshJobs.Dsl.Entities.Step do
         on_error :handle_load_error
         queue :order_processing
         timeout_seconds 30
+      end
+
+      # Step with additional where filter
+      step :process_priority_orders do
+        action :process_order
+        on_success :completed
+        where expr(priority == :high and inserted_at < ago(1, :hour))
       end
 
       # Manual pause point (no automatic Oban trigger)
@@ -50,6 +58,7 @@ defmodule AshJobs.Dsl.Entities.Step do
           on_complete: atom() | nil,
           queue: atom(),
           trigger: boolean(),
+          where: Ash.Expr.t() | nil,
           timeout_seconds: integer() | nil,
           retry_attempts: integer() | nil,
           retry_delay_seconds: integer() | nil
@@ -61,6 +70,7 @@ defmodule AshJobs.Dsl.Entities.Step do
     :on_success,
     :on_error,
     :on_complete,
+    :where,
     :__spark_metadata__,
     queue: :default,
     trigger: true,
@@ -107,6 +117,12 @@ defmodule AshJobs.Dsl.Entities.Step do
         required: false,
         default: true,
         doc: "Whether to create Oban trigger (set false for manual steps)"
+      ],
+      where: [
+        type: :any,
+        required: false,
+        doc:
+          "Additional filter expression combined with the state filter using `and`. Use `expr(...)` syntax."
       ],
       timeout_seconds: [
         type: :pos_integer,

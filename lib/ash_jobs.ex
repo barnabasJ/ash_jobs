@@ -63,11 +63,10 @@ defmodule AshJobs do
     transformers: [
       # Generate error handler actions first (they're simple state transitions)
       AshJobs.Transformers.GenerateErrorActions,
-      # Generate parallel step completion callback actions
-      AshJobs.Transformers.GenerateParallelCallbacks,
       # Inject Change module into workflow actions for routing
       AshJobs.Transformers.BuildWorkflow,
       # Then integrate with ash_state_machine (uses generated error actions)
+      # Note: ash_state_machine auto-generates actions from transitions
       AshJobs.Transformers.IntegrateStateMachine,
       # Generate parallel_regions for parallel_steps
       AshJobs.Transformers.IntegrateParallelRegions,

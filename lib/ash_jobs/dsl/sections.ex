@@ -16,10 +16,13 @@ defmodule AshJobs.Dsl.Sections do
   ## Options
 
   - `:state_attribute` (atom) - Attribute to use for tracking workflow state (defaults to :state)
+  - `:triggers` (boolean) - Whether to generate Oban triggers (defaults to false)
 
   ## Examples
 
+      # Root workflow with triggers enabled
       workflow do
+        triggers true
         state_attribute :workflow_state  # Optional override
 
         step :load_order do
@@ -34,6 +37,14 @@ defmodule AshJobs.Dsl.Sections do
           on_error :notify_inventory_error
         end
       end
+
+      # Child workflow (used in parallel_step) - no triggers needed
+      workflow do
+        step :process do
+          action :process
+          on_success :completed
+        end
+      end
   """
   def workflow do
     %Spark.Dsl.Section{
@@ -44,6 +55,20 @@ defmodule AshJobs.Dsl.Sections do
           type: :atom,
           default: :state,
           doc: "Attribute to use for tracking workflow state"
+        ],
+        triggers: [
+          type: :boolean,
+          default: false,
+          doc: """
+          Whether to generate Oban triggers for this workflow.
+
+          Defaults to false since most workflows are child resources used in parallel regions.
+          Set to true for "root" workflows that should be triggered by Oban.
+
+          When enabled, generates triggers for:
+          - Regular steps (filtered by step state)
+          - Wrapper actions for parallel_steps (e.g., :payment_process)
+          """
         ]
       ],
       entities: [

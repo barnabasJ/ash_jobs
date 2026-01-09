@@ -75,14 +75,23 @@ defmodule AshJobs.Transformers.IntegrateOban do
     workflow_steps = Spark.Dsl.Extension.get_entities(dsl_state, [:workflow])
 
     if workflow_steps && length(workflow_steps) > 0 do
-      # Check if oban section already exists
-      if has_oban_config?(dsl_state) do
+      # Check workflow-level triggers option (defaults to false)
+      triggers_enabled =
+        Spark.Dsl.Transformer.get_option(dsl_state, [:workflow], :triggers) || false
+
+      cond do
+        # triggers: false (default) - skip all Oban trigger generation
+        not triggers_enabled ->
+          {:ok, dsl_state}
+
         # User defined their own oban config, skip generation
-        {:ok, dsl_state}
-      else
-        # Generate oban triggers
-        dsl_state = generate_oban_triggers(dsl_state, workflow_steps)
-        {:ok, dsl_state}
+        has_oban_config?(dsl_state) ->
+          {:ok, dsl_state}
+
+        # triggers: true - generate triggers for steps and wrapper actions
+        true ->
+          dsl_state = generate_oban_triggers(dsl_state, workflow_steps)
+          {:ok, dsl_state}
       end
     else
       # No workflow defined, skip
@@ -115,28 +124,110 @@ defmodule AshJobs.Transformers.IntegrateOban do
     existing_scheduled_names = MapSet.new(existing_scheduled, & &1.name)
     existing_names = MapSet.union(existing_trigger_names, existing_scheduled_names)
 
-    # Generate triggers for automatic steps only (trigger != false)
-    # Skip parallel_steps (they don't have actions, they coordinate branches)
+    # Separate regular steps from parallel_steps
+    regular_steps = Enum.reject(workflow_steps, &is_parallel_step?/1)
+    parallel_steps = Enum.filter(workflow_steps, &is_parallel_step?/1)
+
+    # Generate triggers for automatic regular steps only (trigger != false)
     # Skip error handler steps (they use on_complete, not on_success)
     # Skip steps that already have triggers defined
-    # Also deduplicate by step name (in case workflow_steps contains duplicates)
-    triggers =
-      workflow_steps
-      |> Enum.reject(&is_parallel_step?/1)
+    regular_triggers =
+      regular_steps
       |> Enum.reject(fn step -> step.trigger == false end)
       |> Enum.reject(&is_error_handler?/1)
       |> Enum.uniq_by(& &1.name)
       |> Enum.reject(fn step -> MapSet.member?(existing_names, step.name) end)
       |> Enum.map(&build_trigger(&1, state_attr, resource_module, workflow_steps))
 
+    # Generate triggers for wrapper actions from parallel_steps
+    # ash_state_machine generates wrapper actions like :payment_process for each branch action
+    wrapper_triggers =
+      generate_wrapper_action_triggers(
+        parallel_steps,
+        state_attr,
+        resource_module,
+        existing_names
+      )
+
+    # Combine all triggers
+    all_triggers = regular_triggers ++ wrapper_triggers
+
     # Add each trigger to the DSL state
-    Enum.reduce(triggers, dsl_state, fn trigger, acc_state ->
+    Enum.reduce(all_triggers, dsl_state, fn trigger, acc_state ->
       Spark.Dsl.Transformer.add_entity(
         acc_state,
         [:oban, :triggers],
         trigger
       )
     end)
+  end
+
+  defp generate_wrapper_action_triggers(
+         parallel_steps,
+         state_attr,
+         resource_module,
+         existing_names
+       ) do
+    parallel_steps
+    |> Enum.flat_map(fn parallel_step ->
+      # For each branch, get update actions from branch resource
+      Enum.flat_map(parallel_step.branches, fn branch ->
+        branch_actions = get_branch_update_actions(branch.resource)
+
+        Enum.map(branch_actions, fn action ->
+          %{
+            parallel_step: parallel_step,
+            branch: branch,
+            action_name: action.name,
+            wrapper_action_name: :"#{branch.name}_#{action.name}"
+          }
+        end)
+      end)
+    end)
+    |> Enum.reject(fn info -> MapSet.member?(existing_names, info.wrapper_action_name) end)
+    |> Enum.map(&build_wrapper_trigger(&1, state_attr, resource_module))
+  end
+
+  defp get_branch_update_actions(resource) do
+    resource
+    |> Ash.Resource.Info.actions()
+    |> Enum.filter(&(&1.type == :update))
+  end
+
+  defp build_wrapper_trigger(info, state_attr, resource_module) do
+    # Filter on parent being in the parallel_step state (enter_state)
+    state_where = build_state_where_expr(state_attr, info.parallel_step.name)
+
+    # Generate module names for worker and scheduler
+    worker_module = build_module_name(resource_module, info.wrapper_action_name, :Worker)
+    scheduler_module = build_module_name(resource_module, info.wrapper_action_name, :Scheduler)
+
+    # Get queue from parallel_step or default
+    queue = Map.get(info.parallel_step, :queue) || :default
+
+    opts = [
+      name: info.wrapper_action_name,
+      action: info.wrapper_action_name,
+      where: state_where,
+      queue: queue,
+      max_attempts: 20,
+      worker_opts: [],
+      state: :active,
+      scheduler_priority: 1,
+      worker_priority: 0,
+      worker_module_name: worker_module,
+      scheduler_module_name: scheduler_module
+    ]
+
+    {:ok, trigger} =
+      Spark.Dsl.Transformer.build_entity(
+        AshOban,
+        [:oban, :triggers],
+        :trigger,
+        opts
+      )
+
+    trigger
   end
 
   defp build_trigger(step, state_attr, resource_module, workflow_steps) do

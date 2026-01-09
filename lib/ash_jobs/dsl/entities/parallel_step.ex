@@ -42,6 +42,7 @@ defmodule AshJobs.Dsl.Entities.ParallelStep do
           completion_strategy: :all | :any | {:require_n, pos_integer()},
           on_complete: atom(),
           on_error: atom() | nil,
+          queue: atom(),
           branches: [Branch.t()],
           __spark_metadata__: any()
         }
@@ -52,6 +53,7 @@ defmodule AshJobs.Dsl.Entities.ParallelStep do
     :on_error,
     :__spark_metadata__,
     completion_strategy: :all,
+    queue: :default,
     branches: []
   ]
 
@@ -81,6 +83,11 @@ defmodule AshJobs.Dsl.Entities.ParallelStep do
         type: :atom,
         required: false,
         doc: "Error handler step when completion strategy fails"
+      ],
+      queue: [
+        type: :atom,
+        default: :default,
+        doc: "Oban queue for wrapper action triggers (when workflow has triggers: true)"
       ]
     ]
   end

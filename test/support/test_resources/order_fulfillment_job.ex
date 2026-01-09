@@ -20,6 +20,8 @@ defmodule AshJobs.TestResources.OrderFulfillmentJob do
   end
 
   workflow do
+    triggers(true)
+
     step :load_order do
       action :load_order_data
       on_success(:validate_inventory)

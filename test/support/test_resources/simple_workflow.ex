@@ -14,6 +14,8 @@ defmodule AshJobs.TestResources.SimpleWorkflow do
   end
 
   workflow do
+    triggers(true)
+
     step :process do
       action :do_work
       on_success(:completed)

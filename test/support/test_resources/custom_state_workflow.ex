@@ -16,6 +16,7 @@ defmodule AshJobs.TestResources.CustomStateWorkflow do
   end
 
   workflow do
+    triggers(true)
     state_attribute :status
 
     step :initialize do

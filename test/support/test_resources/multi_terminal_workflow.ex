@@ -19,6 +19,8 @@ defmodule AshJobs.TestResources.MultiTerminalWorkflow do
   end
 
   workflow do
+    triggers(true)
+
     step :start do
       action :begin
       on_success(:process)

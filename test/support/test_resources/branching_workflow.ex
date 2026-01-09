@@ -20,6 +20,8 @@ defmodule AshJobs.TestResources.BranchingWorkflow do
   end
 
   workflow do
+    triggers(true)
+
     step :start do
       action :initialize
       on_success(:step_one)

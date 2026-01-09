@@ -17,6 +17,8 @@ defmodule AshJobs.TestResources.ManualWorkflow do
   end
 
   workflow do
+    triggers(true)
+
     step :auto_step do
       action :process_auto
       on_success(:manual_step)

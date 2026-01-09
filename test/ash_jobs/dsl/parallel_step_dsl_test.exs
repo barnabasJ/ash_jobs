@@ -3,13 +3,60 @@ defmodule AshJobs.Dsl.ParallelStepDslTest do
 
   alias AshJobs.Dsl.Entities.ParallelStep
 
-  # Define test modules for branch resources
+  # Define test modules for branch resources - must be actual Ash.Resource modules
+  # for ash_state_machine's GenerateRegionActions transformer to work
+  defmodule BranchDomain do
+    use Ash.Domain
+
+    resources do
+      allow_unregistered? true
+    end
+  end
+
   defmodule BranchAWorkflow do
-    # Minimal module for testing - just needs to exist
+    use Ash.Resource,
+      domain: AshJobs.Dsl.ParallelStepDslTest.BranchDomain,
+      extensions: [AshJobs, AshStateMachine, AshOban]
+
+    attributes do
+      uuid_primary_key :id
+    end
+
+    workflow do
+      step :work do
+        action :do_work
+        on_success(:completed)
+      end
+    end
+
+    actions do
+      defaults [:read]
+      create :create
+      update :do_work, do: accept([])
+    end
   end
 
   defmodule BranchBWorkflow do
-    # Minimal module for testing - just needs to exist
+    use Ash.Resource,
+      domain: AshJobs.Dsl.ParallelStepDslTest.BranchDomain,
+      extensions: [AshJobs, AshStateMachine, AshOban]
+
+    attributes do
+      uuid_primary_key :id
+    end
+
+    workflow do
+      step :work do
+        action :do_work
+        on_success(:completed)
+      end
+    end
+
+    actions do
+      defaults [:read]
+      create :create
+      update :do_work, do: accept([])
+    end
   end
 
   @moduledoc """

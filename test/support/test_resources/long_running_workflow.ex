@@ -20,6 +20,8 @@ defmodule AshJobs.TestResources.LongRunningWorkflow do
   end
 
   workflow do
+    triggers(true)
+
     step :quick_step do
       action :process_quick
       on_success(:slow_step)

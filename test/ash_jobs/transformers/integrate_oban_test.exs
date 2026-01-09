@@ -78,6 +78,8 @@ defmodule AshJobs.Transformers.IntegrateObanTest do
       {:ok, resource} =
         compile_resource_with_oban("""
           workflow do
+            triggers true
+
             step :load_order do
               action :load_order
               on_success :completed
@@ -101,6 +103,8 @@ defmodule AshJobs.Transformers.IntegrateObanTest do
       {:ok, resource} =
         compile_resource_with_oban("""
           workflow do
+            triggers true
+
             step :load_order do
               action :load_order
               on_success :completed
@@ -131,6 +135,8 @@ defmodule AshJobs.Transformers.IntegrateObanTest do
       {:ok, resource} =
         compile_resource_with_oban("""
           workflow do
+            triggers true
+
             step :load_order do
               action :load_order
               on_success :validate_inventory
@@ -161,6 +167,8 @@ defmodule AshJobs.Transformers.IntegrateObanTest do
       {:ok, resource} =
         compile_resource_with_oban("""
           workflow do
+            triggers true
+
             step :load_order do
               action :load_order
               on_success :await_confirmation
@@ -200,6 +208,7 @@ defmodule AshJobs.Transformers.IntegrateObanTest do
           end
 
           workflow do
+            triggers true
             state_attribute :workflow_state
 
             step :load_order do
@@ -225,6 +234,8 @@ defmodule AshJobs.Transformers.IntegrateObanTest do
       {:ok, resource} =
         compile_resource_with_oban("""
           workflow do
+            triggers true
+
             step :load_order do
               action :load_order
               on_success :completed
@@ -248,6 +259,8 @@ defmodule AshJobs.Transformers.IntegrateObanTest do
       {:ok, resource} =
         compile_resource_with_oban("""
           workflow do
+            triggers true
+
             step :load_order do
               action :load_order
               on_success :completed
@@ -276,6 +289,8 @@ defmodule AshJobs.Transformers.IntegrateObanTest do
           end
 
           workflow do
+            triggers true
+
             step :process_priority do
               action :process_order
               on_success :completed
@@ -306,6 +321,8 @@ defmodule AshJobs.Transformers.IntegrateObanTest do
       {:ok, resource} =
         compile_resource_with_oban("""
           workflow do
+            triggers true
+
             step :load_order do
               action :load_order
               on_success :completed

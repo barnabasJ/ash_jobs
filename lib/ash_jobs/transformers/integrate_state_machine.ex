@@ -45,6 +45,7 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
   def before?(AshStateMachine.Transformers.FillInTransitionDefaults), do: true
   def before?(AshStateMachine.Transformers.AddState), do: true
   def before?(AshStateMachine.Transformers.EnsureStateSelected), do: true
+  def before?(AshStateMachine.Transformers.InjectEntryExitChanges), do: true
   def before?(_), do: false
 
   def transform(dsl_state) do
@@ -139,8 +140,15 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
     dsl_state =
       Spark.Dsl.Transformer.set_option(dsl_state, [:state_machine], :state_attribute, state_attr)
 
+    # Set failure_states for proper parallel region completion detection
+    dsl_state =
+      Spark.Dsl.Transformer.set_option(dsl_state, [:state_machine], :failure_states, [:failed])
+
     # Generate and add transitions
-    generate_transitions(dsl_state, workflow_steps)
+    dsl_state = generate_transitions(dsl_state, workflow_steps)
+
+    # Generate state entities for steps with entry/exit callbacks
+    generate_state_callbacks(dsl_state, workflow_steps)
   end
 
   defp update_state_attribute_constraints(dsl_state, state_attr_name, all_states) do
@@ -255,5 +263,42 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
   defp is_parallel_step?(entity) do
     # Parallel steps are a different entity type that coordinate branches
     match?(%AshJobs.Dsl.Entities.ParallelStep{}, entity)
+  end
+
+  defp generate_state_callbacks(dsl_state, workflow_steps) do
+    # Filter to regular steps that have any callbacks defined
+    steps_with_callbacks =
+      workflow_steps
+      |> Enum.reject(&is_parallel_step?/1)
+      |> Enum.filter(&has_state_callbacks?/1)
+
+    # Add state entities for each step with callbacks
+    Enum.reduce(steps_with_callbacks, dsl_state, fn step, acc_state ->
+      {:ok, state_entity} =
+        Spark.Dsl.Transformer.build_entity(
+          AshStateMachine,
+          [:state_machine, :states],
+          :state,
+          name: step.name,
+          on_enter: step.on_enter,
+          on_enter_validate: step.on_enter_validate,
+          on_exit: step.on_exit,
+          on_exit_validate: step.on_exit_validate
+        )
+
+      Spark.Dsl.Transformer.add_entity(
+        acc_state,
+        [:state_machine, :states],
+        state_entity
+      )
+    end)
+  end
+
+  defp has_state_callbacks?(step) do
+    # Check if step has any entry/exit callbacks defined
+    (step.on_enter && step.on_enter != []) ||
+      (step.on_enter_validate && step.on_enter_validate != []) ||
+      (step.on_exit && step.on_exit != []) ||
+      (step.on_exit_validate && step.on_exit_validate != [])
   end
 end

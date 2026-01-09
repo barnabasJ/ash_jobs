@@ -50,6 +50,9 @@ defmodule AshJobs.Dsl.Entities.Step do
       end
   """
 
+  @type change_spec :: module() | {module(), keyword()}
+  @type validation_spec :: module() | {module(), keyword()}
+
   @type t :: %__MODULE__{
           name: atom(),
           action: atom(),
@@ -61,7 +64,11 @@ defmodule AshJobs.Dsl.Entities.Step do
           where: Ash.Expr.t() | nil,
           timeout_seconds: integer() | nil,
           retry_attempts: integer() | nil,
-          retry_delay_seconds: integer() | nil
+          retry_delay_seconds: integer() | nil,
+          on_enter: [change_spec()],
+          on_enter_validate: [validation_spec()],
+          on_exit: [change_spec()],
+          on_exit_validate: [validation_spec()]
         }
 
   defstruct [
@@ -76,7 +83,11 @@ defmodule AshJobs.Dsl.Entities.Step do
     trigger: true,
     timeout_seconds: nil,
     retry_attempts: nil,
-    retry_delay_seconds: nil
+    retry_delay_seconds: nil,
+    on_enter: [],
+    on_enter_validate: [],
+    on_exit: [],
+    on_exit_validate: []
   ]
 
   def schema do
@@ -138,6 +149,50 @@ defmodule AshJobs.Dsl.Entities.Step do
         type: :pos_integer,
         required: false,
         doc: "Delay between retries in seconds"
+      ],
+      on_enter: [
+        type: {:list, {:or, [:atom, {:tuple, [:atom, :keyword_list]}]}},
+        required: false,
+        default: [],
+        doc: """
+        Changes to run when entering this step's state.
+
+        Supports:
+        - Module: `MyApp.Changes.DoSomething`
+        - Module with opts: `{MyApp.Changes.DoSomething, opt: value}`
+
+        Entry changes run for ANY transition into this state.
+        """
+      ],
+      on_enter_validate: [
+        type: {:list, {:or, [:atom, {:tuple, [:atom, :keyword_list]}]}},
+        required: false,
+        default: [],
+        doc: """
+        Validations to run when entering this step's state.
+
+        Entry validations run after entry changes and can rollback the transaction.
+        """
+      ],
+      on_exit: [
+        type: {:list, {:or, [:atom, {:tuple, [:atom, :keyword_list]}]}},
+        required: false,
+        default: [],
+        doc: """
+        Changes to run when exiting this step's state.
+
+        Exit changes run for ANY transition out of this state.
+        """
+      ],
+      on_exit_validate: [
+        type: {:list, {:or, [:atom, {:tuple, [:atom, :keyword_list]}]}},
+        required: false,
+        default: [],
+        doc: """
+        Validations to run when exiting this step's state.
+
+        Exit validations run before exit changes and can block the transition.
+        """
       ]
     ]
   end

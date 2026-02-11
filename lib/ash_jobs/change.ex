@@ -44,23 +44,26 @@ defmodule AshJobs.Change do
       state_attr = workflow.state_attribute || :state
       current_state = Map.get(record, state_attr)
 
-      unless current_state in [:completed, :failed, :cancelled] do
-        case AshJobs.Info.step(resource, current_state) do
-          {:ok, step} when step.trigger == true ->
-            case AshOban.run_trigger(record, current_state) do
-              %Oban.Job{} = _job ->
-                :ok
+      # Only try to trigger if workflow-level triggers are enabled
+      if AshJobs.Info.triggers?(resource) do
+        unless current_state in [:completed, :failed, :cancelled] do
+          case AshJobs.Info.step(resource, current_state) do
+            {:ok, step} when step.trigger == true ->
+              case AshOban.run_trigger(record, current_state) do
+                %Oban.Job{} = _job ->
+                  :ok
 
-              {:error, reason} ->
-                Logger.error(
-                  "Failed to trigger initial step #{current_state}: #{inspect(reason)}"
-                )
+                {:error, reason} ->
+                  Logger.error(
+                    "Failed to trigger initial step #{current_state}: #{inspect(reason)}"
+                  )
 
-                :ok
-            end
+                  :ok
+              end
 
-          _ ->
-            :ok
+            _ ->
+              :ok
+          end
         end
       end
 
@@ -77,20 +80,23 @@ defmodule AshJobs.Change do
     changeset
     |> Ash.Changeset.force_change_attribute(state_attr, next_state)
     |> Ash.Changeset.after_action(fn _changeset, record ->
-      unless next_state in [:completed, :failed, :cancelled] do
-        case AshJobs.Info.step(resource, next_state) do
-          {:ok, step} when step.trigger == true ->
-            case AshOban.run_trigger(record, next_state) do
-              %Oban.Job{} = _job ->
-                :ok
+      # Only try to trigger if workflow-level triggers are enabled
+      if AshJobs.Info.triggers?(resource) do
+        unless next_state in [:completed, :failed, :cancelled] do
+          case AshJobs.Info.step(resource, next_state) do
+            {:ok, step} when step.trigger == true ->
+              case AshOban.run_trigger(record, next_state) do
+                %Oban.Job{} = _job ->
+                  :ok
 
-              {:error, reason} ->
-                Logger.error("Failed to trigger next step #{next_state}: #{inspect(reason)}")
-                :ok
-            end
+                {:error, reason} ->
+                  Logger.error("Failed to trigger next step #{next_state}: #{inspect(reason)}")
+                  :ok
+              end
 
-          _ ->
-            :ok
+            _ ->
+              :ok
+          end
         end
       end
 

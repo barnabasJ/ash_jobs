@@ -174,10 +174,12 @@ defmodule AshJobs.Transformers.IntegrateStateMachineTest do
         compile_resource_with_state_machine("""
           attributes do
             uuid_primary_key :id
+            # Note: Error handler steps are NOT included in states - they're action containers
+            # that can be called from any state, not states the workflow enters
             attribute :state, :atom,
               default: :load_order,
               allow_nil?: false,
-              constraints: [one_of: [:completed, :failed, :handle_error, :load_order, :validate_inventory]]
+              constraints: [one_of: [:completed, :failed, :load_order, :validate_inventory]]
           end
 
           workflow do

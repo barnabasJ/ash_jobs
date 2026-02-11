@@ -56,6 +56,7 @@ defmodule AshJobs.Dsl.Entities.Step do
   @type t :: %__MODULE__{
           name: atom(),
           action: atom(),
+          from: atom() | nil,
           on_success: atom(),
           on_error: atom() | nil,
           on_complete: atom() | nil,
@@ -74,6 +75,7 @@ defmodule AshJobs.Dsl.Entities.Step do
   defstruct [
     :name,
     :action,
+    :from,
     :on_success,
     :on_error,
     :on_complete,
@@ -101,6 +103,12 @@ defmodule AshJobs.Dsl.Entities.Step do
         type: :atom,
         required: true,
         doc: "Action to execute for this step"
+      ],
+      from: [
+        type: :atom,
+        required: false,
+        doc:
+          "State to match for this step. When set, decouples the step name from the state it matches. Defaults to step name if not specified."
       ],
       on_success: [
         type: :atom,

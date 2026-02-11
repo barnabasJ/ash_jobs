@@ -231,9 +231,11 @@ defmodule AshJobs.Transformers.IntegrateOban do
   end
 
   defp build_trigger(step, state_attr, resource_module, workflow_steps) do
-    # Build where expression: state_attr == step_name
+    # Build where expression: state_attr == step_state
+    # Use step.from (if set) as the state to match, otherwise step.name
     # If step has a custom where, combine with state filter using `and`
-    state_where = build_state_where_expr(state_attr, step.name)
+    step_state = step.from || step.name
+    state_where = build_state_where_expr(state_attr, step_state)
     where_expr = combine_where_exprs(state_where, step.where)
 
     # Generate module names for worker and scheduler

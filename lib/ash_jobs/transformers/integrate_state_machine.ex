@@ -101,10 +101,13 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
       |> MapSet.new(& &1.name)
 
     # Collect step states (excluding error handlers - they're not real states)
+    # When `from` is set, the step name is NOT a state (it uses an existing state).
+    # When `from` is nil, the step name IS the state (backwards compatible).
     step_states =
       workflow_steps
+      |> Enum.reject(&MapSet.member?(error_handler_names, &1.name))
+      |> Enum.reject(fn step -> step.from != nil end)
       |> Enum.map(& &1.name)
-      |> Enum.reject(&MapSet.member?(error_handler_names, &1))
 
     terminal_states = [:completed, :failed, :cancelled]
 
@@ -268,9 +271,15 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
         transitions = []
 
         # Add success transition
+        # Use step.from (if set) as the source state, otherwise step.name
+        step_source_state = step.from || step.name
+
         transitions =
           if step.on_success do
-            [%{action: step.action, from: [step.name], to: [step.on_success]} | transitions]
+            [
+              %{action: step.action, from: [step_source_state], to: [step.on_success]}
+              | transitions
+            ]
           else
             transitions
           end
@@ -281,7 +290,7 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
 
         # Add complete transition (used by error handlers and final steps)
         # For error handlers: allow transition from ALL valid workflow states
-        # For normal steps: only from the step's own state
+        # For normal steps: only from the step's own state (using from if set)
         transitions =
           if step.on_complete do
             from_states =
@@ -289,7 +298,7 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
                 # Error handlers can be called from any valid workflow state
                 valid_from_states
               else
-                [step.name]
+                [step_source_state]
               end
 
             [%{action: step.action, from: from_states, to: [step.on_complete]} | transitions]

@@ -99,6 +99,25 @@ defmodule AshJobs.Info do
   def is_parallel_step?(_), do: false
 
   @doc """
+  Returns the effective state for a step.
+
+  When `from` is set, returns `from`. Otherwise returns the step name.
+  This decouples the step identity from the state it matches.
+
+  ## Examples
+
+      step = %Step{name: :resolve_conflict, from: :conflict}
+      AshJobs.Info.step_state(step)
+      #=> :conflict
+
+      step = %Step{name: :push_to_logseq, from: nil}
+      AshJobs.Info.step_state(step)
+      #=> :push_to_logseq
+  """
+  def step_state(%{from: from}) when not is_nil(from), do: from
+  def step_state(%{name: name}), do: name
+
+  @doc """
   Returns a specific step by name.
 
   ## Examples
@@ -162,6 +181,25 @@ defmodule AshJobs.Info do
   """
   def state_attribute(resource) do
     Spark.Dsl.Extension.get_opt(resource, [:workflow], :state_attribute, :state)
+  end
+
+  @doc """
+  Returns whether workflow-level triggers are enabled.
+
+  When false (the default), AshOban triggers are not generated and
+  `AshOban.run_trigger` should not be called.
+
+  ## Examples
+
+      AshJobs.Info.triggers?(MyApp.FulfillmentJob)
+      #=> false
+
+      # With triggers enabled in workflow DSL
+      AshJobs.Info.triggers?(MyApp.RootWorkflow)
+      #=> true
+  """
+  def triggers?(resource) do
+    Spark.Dsl.Extension.get_opt(resource, [:workflow], :triggers, false)
   end
 
   @doc """

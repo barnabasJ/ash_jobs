@@ -258,11 +258,14 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
       end)
       |> MapSet.new(& &1.name)
 
-    # Collect valid workflow states (excluding error handlers)
-    # These are the states error handlers can be called FROM
+    # Collect valid workflow states (excluding error handlers and manual steps).
+    # Error handlers can be called FROM any actual state. Steps with `from` set
+    # are manual actions that operate on existing states — their names are NOT states.
     valid_from_states =
-      (Enum.map(regular_steps, & &1.name) ++ Enum.map(parallel_steps, & &1.name))
-      |> Enum.reject(&MapSet.member?(error_handler_names, &1))
+      (regular_steps ++ parallel_steps)
+      |> Enum.reject(fn step -> MapSet.member?(error_handler_names, step.name) end)
+      |> Enum.reject(fn step -> step.from != nil end)
+      |> Enum.map(& &1.name)
 
     # Collect transitions from regular steps
     regular_transitions =
@@ -324,10 +327,15 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
         end
       end)
 
-    # Combine and group transitions by {action, to} to combine their from states
+    # Combine and group transitions by {action, to} to combine their from states.
+    # Flatten from lists first since error handlers may have multiple from states
+    # in a single transition entry (e.g. from: [:cloning, :merging, ...]).
     all_transitions =
       (regular_transitions ++ parallel_transitions)
-      |> Enum.group_by(fn t -> {t.action, List.first(t.to)} end, fn t -> List.first(t.from) end)
+      |> Enum.flat_map(fn t ->
+        Enum.map(t.from, fn from_state -> {t.action, List.first(t.to), from_state} end)
+      end)
+      |> Enum.group_by(fn {action, to, _} -> {action, to} end, fn {_, _, from} -> from end)
       |> Enum.map(fn {{action, to}, froms} ->
         %{action: action, from: Enum.uniq(froms), to: [to]}
       end)

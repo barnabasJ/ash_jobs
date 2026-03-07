@@ -79,7 +79,7 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
     end
   end
 
-  defp generate_state_machine(dsl_state, workflow_steps, opts \\ []) do
+  defp generate_state_machine(dsl_state, workflow_steps, opts) do
     merge? = Keyword.get(opts, :merge, false)
 
     # Get state_attribute from workflow section (defaults to :state)
@@ -204,7 +204,7 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
     end
   end
 
-  defp update_state_attribute_constraints(dsl_state, state_attr_name, all_states, merge? \\ false) do
+  defp update_state_attribute_constraints(dsl_state, state_attr_name, all_states, merge?) do
     # Get the state attribute from DSL entities
     attributes = Spark.Dsl.Extension.get_entities(dsl_state, [:attributes])
     state_attribute = Enum.find(attributes, &(&1.name == state_attr_name))

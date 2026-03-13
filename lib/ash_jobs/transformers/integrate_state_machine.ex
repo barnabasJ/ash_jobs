@@ -104,9 +104,9 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
     # When `from` is set, the step name is NOT a state (it uses an existing state).
     # When `from` is nil, the step name IS the state (backwards compatible).
     step_states =
-      workflow_steps
+      (regular_steps ++ parallel_steps)
       |> Enum.reject(&MapSet.member?(error_handler_names, &1.name))
-      |> Enum.reject(fn step -> step.from != nil end)
+      |> Enum.reject(fn step -> Map.get(step, :from) != nil end)
       |> Enum.map(& &1.name)
 
     terminal_states = [:completed, :failed, :cancelled]
@@ -264,7 +264,7 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
     valid_from_states =
       (regular_steps ++ parallel_steps)
       |> Enum.reject(fn step -> MapSet.member?(error_handler_names, step.name) end)
-      |> Enum.reject(fn step -> step.from != nil end)
+      |> Enum.reject(fn step -> Map.get(step, :from) != nil end)
       |> Enum.map(& &1.name)
 
     # Collect transitions from regular steps
@@ -320,8 +320,16 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
         callback_action = :"handle_#{ps.name}_complete"
 
         # Add on_complete transition (from parallel step to completion target)
+        # require_atomic?: false because completion involves after_action hooks
         if ps.on_complete do
-          [%{action: callback_action, from: [ps.name], to: [ps.on_complete]}]
+          [
+            %{
+              action: callback_action,
+              from: [ps.name],
+              to: [ps.on_complete],
+              require_atomic?: false
+            }
+          ]
         else
           []
         end
@@ -333,23 +341,48 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
     all_transitions =
       (regular_transitions ++ parallel_transitions)
       |> Enum.flat_map(fn t ->
-        Enum.map(t.from, fn from_state -> {t.action, List.first(t.to), from_state} end)
+        require_atomic? = Map.get(t, :require_atomic?)
+
+        Enum.map(t.from, fn from_state ->
+          {t.action, List.first(t.to), from_state, require_atomic?}
+        end)
       end)
-      |> Enum.group_by(fn {action, to, _} -> {action, to} end, fn {_, _, from} -> from end)
-      |> Enum.map(fn {{action, to}, froms} ->
-        %{action: action, from: Enum.uniq(froms), to: [to]}
+      |> Enum.group_by(
+        fn {action, to, _, _} -> {action, to} end,
+        fn {_, _, from, require_atomic?} -> {from, require_atomic?} end
+      )
+      |> Enum.map(fn {{action, to}, froms_with_atomic} ->
+        froms = froms_with_atomic |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+        # If any transition for this action has require_atomic?: false, use false
+        require_atomic? =
+          froms_with_atomic
+          |> Enum.map(&elem(&1, 1))
+          |> Enum.find(&(&1 == false))
+
+        %{action: action, from: froms, to: [to], require_atomic?: require_atomic?}
       end)
 
     # Add each transition
     Enum.reduce(all_transitions, dsl_state, fn transition, acc_state ->
+      opts = [
+        action: transition.action,
+        from: transition.from,
+        to: transition.to
+      ]
+
+      opts =
+        if transition.require_atomic? == false do
+          Keyword.put(opts, :require_atomic?, false)
+        else
+          opts
+        end
+
       {:ok, transition_entity} =
         Spark.Dsl.Transformer.build_entity(
           AshStateMachine,
           [:state_machine, :transitions],
           :transition,
-          action: transition.action,
-          from: transition.from,
-          to: transition.to
+          opts
         )
 
       Spark.Dsl.Transformer.add_entity(

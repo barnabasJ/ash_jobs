@@ -5,75 +5,93 @@ code in this repository.
 
 ## Project Overview
 
-`ash_jobs` is an Elixir library project. The codebase is currently in early
-stages with minimal implementation.
+`ash_jobs` is a declarative workflow DSL for Ash Framework that integrates
+`ash_state_machine` and `ash_oban`. It generates state machines, Oban triggers,
+and state transitions from a simple `workflow` DSL, reducing boilerplate by
+~75%.
+
+Key features: sequential workflows (`step`), parallel workflows (`parallel_step`
+with branch resources), error handling, manual pause points, and workflow
+introspection via `AshJobs.Info`.
 
 ## Development Commands
 
-### Dependencies
-
 ```bash
-mix deps.get          # Install dependencies
-mix deps.update --all # Update all dependencies
-```
-
-### Testing
-
-```bash
-mix test              # Run all tests
-mix test <file>       # Run a specific test file
-mix test <file>:<line> # Run a specific test at line number
-```
-
-### Code Quality
-
-```bash
-mix format            # Format code according to .formatter.exs
-mix format --check-formatted # Check if code is properly formatted
-```
-
-### Compilation
-
-```bash
-mix compile           # Compile the project
-mix clean             # Clean build artifacts
-```
-
-### Documentation
-
-```bash
-mix docs              # Generate documentation (requires ex_doc dependency)
-```
-
-### Interactive Development
-
-```bash
-iex -S mix            # Start IEx with the project loaded
+mix deps.get                              # Install dependencies
+mix compile                               # Compile the project
+mix format                                # Format code
+mix test                                  # Run all tests
+mix test <file>                           # Run a specific test file
+mix test <file>:<line>                    # Run a specific test at line
+MIX_ENV=test mix test.generate_migrations # Generate test DB migrations
+MIX_ENV=test mix test.reset               # Drop, create, migrate test DB
+MIX_ENV=test mix test.migrate             # Run pending migrations
+iex -S mix                                # Start IEx with project loaded
 ```
 
 ## Project Structure
 
 ```
-ash_jobs/
-├── lib/              # Source code
-│   └── ash_jobs.ex   # Main module
-├── test/             # Test files
-│   ├── test_helper.exs
-│   └── ash_jobs_test.exs
-└── mix.exs           # Project configuration
+lib/
+├── ash_jobs.ex                           # Extension definition (DSL sections, transformers, verifiers)
+├── ash_jobs/
+│   ├── change.ex                         # Global change injected into workflow actions
+│   ├── info.ex                           # Introspection API (steps, parallel_steps, entry_points)
+│   ├── dsl/
+│   │   ├── sections.ex                   # DSL section definitions
+│   │   └── entities/
+│   │       ├── step.ex                   # Step entity (sequential workflow step)
+│   │       ├── parallel_step.ex          # ParallelStep entity (concurrent branches)
+│   │       └── branch.ex                 # Branch entity (reference to branch resource)
+│   ├── transformers/
+│   │   ├── build_workflow.ex             # Injects AshJobs.Change + activate_parallel_regions
+│   │   ├── integrate_state_machine.ex    # Generates state_machine DSL from workflow
+│   │   ├── integrate_oban.ex             # Generates Oban triggers from workflow
+│   │   ├── integrate_parallel_regions.ex # Generates parallel_regions DSL from parallel_steps
+│   │   └── generate_error_actions.ex     # Generates error handler actions
+│   └── verifiers/
+│       ├── validate_workflow.ex          # Validates workflow step references
+│       └── verify_parallel_steps.ex      # Validates parallel_step configuration
+test/
+├── support/
+│   ├── test_repo.ex                      # AshPostgres test repo
+│   ├── test_domain.ex                    # Test domain with all test resources
+│   ├── data_case.ex                      # ExUnit case template with SQL sandbox
+│   └── test_resources/                   # Test workflow resources
+├── integration/                          # Integration tests (DB + Oban)
+└── ash_jobs/                             # Unit tests (DSL, transformers, verifiers)
 ```
 
-## Architecture Notes
+## Architecture
 
-This project is in early development. Architecture patterns will emerge as the
-codebase grows. The name suggests this will be a job/background task processing
-library related to the Ash Framework ecosystem.
+### Transformer Chain Order
+
+1. `GenerateErrorActions` — creates error handler actions
+2. `BuildWorkflow` — injects `AshJobs.Change` into actions,
+   `activate_parallel_regions()` for parallel steps
+3. `IntegrateStateMachine` — generates `state_machine` DSL (states, transitions)
+   from workflow
+4. `IntegrateParallelRegions` — generates `parallel_regions` DSL from
+   `parallel_step` entities
+5. `IntegrateOban` — generates Oban triggers (runs after `GenerateRegionActions`
+   from ash_state_machine)
+
+### Key Design Decisions
+
+- Branch resources are separate Ash resources with their own workflows and
+  `parent_id`
+- `parallel_step` wraps ash_state_machine's `parallel_region` — all coordination
+  is delegated
+- Wrapper actions (e.g., `payment_process_payment`) are auto-generated by
+  ash_state_machine
+- Migrations are always generated, never hand-written:
+  `MIX_ENV=test mix test.generate_migrations`
 
 ## Development Workflow
 
-When adding new functionality:
-
-1. Write tests first in the `test/` directory
-2. Implement functionality in `lib/`
+1. Write tests first in `test/`
+2. Implement in `lib/`
 3. Run `mix format` before committing
-4. Ensure `mix test` passes
+4. Run `mix test` to verify
+5. If adding resources/attributes: `MIX_ENV=test mix test.generate_migrations`
+   then `MIX_ENV=test mix test.reset`

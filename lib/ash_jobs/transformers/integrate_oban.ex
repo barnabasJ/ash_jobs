@@ -60,9 +60,10 @@ defmodule AshJobs.Transformers.IntegrateOban do
 
   use Spark.Dsl.Transformer
 
-  # Run after our own transformers but before all AshOban and AshStateMachine transformers
+  # Run after our own transformers and after ash_state_machine generates wrapper actions
   def after?(AshJobs.Transformers.GenerateErrorActions), do: true
   def after?(AshJobs.Transformers.IntegrateStateMachine), do: true
+  def after?(AshStateMachine.Transformers.GenerateRegionActions), do: true
   def after?(_), do: false
 
   def before?(AshOban.Transformers.SetDefaults), do: true

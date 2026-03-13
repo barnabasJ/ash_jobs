@@ -53,12 +53,14 @@ defmodule AshJobs.MixProject do
 
   defp aliases do
     [
-      # Test database setup and management
-      "test.setup": [
-        "ecto.create -r AshJobs.TestRepo",
-        "ecto.migrate -r AshJobs.TestRepo --migrations-path priv/test_repo/migrations"
-      ],
-      "test.reset": ["ecto.drop -r AshJobs.TestRepo", "test.setup"]
+      "test.generate_migrations": "ash_postgres.generate_migrations --auto-name",
+      "test.check_migrations": "ash_postgres.generate_migrations --check",
+      "test.migrate": "ash_postgres.migrate",
+      "test.rollback": "ash_postgres.rollback",
+      "test.create": "ash_postgres.create",
+      "test.drop": "ash_postgres.drop",
+      "test.setup": ["test.create", "test.migrate"],
+      "test.reset": ["test.drop", "test.create", "test.migrate"]
     ]
   end
 end

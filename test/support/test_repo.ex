@@ -9,7 +9,7 @@ defmodule AshJobs.TestRepo do
   end
 
   def installed_extensions do
-    ["uuid-ossp", "citext"]
+    ["uuid-ossp", "citext", "ash-functions"]
   end
 
   def min_pg_version do

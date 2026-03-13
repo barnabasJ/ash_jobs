@@ -249,6 +249,84 @@ entry_points = AshJobs.Info.entry_points(FulfillmentJob)
 terminal_steps = AshJobs.Info.terminal_steps(FulfillmentJob)
 ```
 
+## Parallel Workflows
+
+Coordinate multiple concurrent branches that must complete before the workflow
+continues:
+
+```elixir
+defmodule MyApp.Orders.PaymentBranch do
+  use Ash.Resource,
+    domain: MyApp.Orders,
+    extensions: [AshJobs, AshStateMachine, AshOban]
+
+  workflow do
+    step :pending do
+      action :process_payment
+      on_success :completed
+    end
+  end
+
+  attributes do
+    uuid_primary_key :id
+    attribute :parent_id, :uuid, allow_nil?: false, public?: true
+    attribute :state, :atom, default: :pending, allow_nil?: false, public?: true
+  end
+
+  actions do
+    defaults [:read]
+    create :create, accept: [:parent_id]
+    update :process_payment, require_atomic?: false
+  end
+end
+
+defmodule MyApp.Orders.FulfillmentJob do
+  use Ash.Resource,
+    domain: MyApp.Orders,
+    extensions: [AshJobs, AshStateMachine, AshOban]
+
+  workflow do
+    triggers true
+
+    step :start do
+      action :initialize
+      on_success :process_parallel
+    end
+
+    parallel_step :process_parallel do
+      completion_strategy :all  # :all, :any, or {:require_n, count}
+      on_complete :finalize
+
+      branch :payment, MyApp.Orders.PaymentBranch
+      branch :inventory, MyApp.Orders.InventoryBranch
+    end
+
+    step :finalize do
+      action :finalize_order
+      on_success :completed
+    end
+  end
+
+  # ... attributes and actions
+end
+```
+
+### How It Works
+
+1. When the parent workflow transitions to the `parallel_step` state, branch
+   resources are automatically created via `activate_parallel_regions()`
+2. Auto-generated wrapper actions (e.g., `payment_process_payment`) let you
+   progress branches through the parent resource
+3. After each branch action, completion is checked automatically
+4. When the completion strategy is satisfied, `on_complete` fires and the parent
+   transitions to the next step
+
+### Completion Strategies
+
+- `:all` (default) — All branches must reach a success terminal state
+- `:any` — First successful branch triggers completion
+- `{:require_n, count}` — At least `count` branches must succeed
+
 ## Manual Pause Points
 
 Create manual steps that don't trigger automatically:

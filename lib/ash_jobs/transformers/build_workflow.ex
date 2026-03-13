@@ -37,9 +37,12 @@ defmodule AshJobs.Transformers.BuildWorkflow do
     # Get action names from regular steps only (not parallel_steps)
     # Parallel steps don't have actions - they coordinate branch resources
     # All regular steps (including error handlers) need AshJobs.Change for routing
-    action_names =
+    regular_steps =
       steps
       |> Enum.reject(&match?(%AshJobs.Dsl.Entities.ParallelStep{}, &1))
+
+    action_names =
+      regular_steps
       |> Enum.map(& &1.action)
       |> Enum.uniq()
 
@@ -49,9 +52,58 @@ defmodule AshJobs.Transformers.BuildWorkflow do
         add_change_to_action(acc_state, action_name)
       end)
 
+    # Inject activate_parallel_regions() into actions that transition into a parallel step
+    dsl_state = inject_activate_parallel_regions(dsl_state, regular_steps, steps)
+
     # Also add Change module to ALL create actions
     # This allows creates to trigger the first workflow step
     add_change_to_all_creates(dsl_state)
+  end
+
+  defp inject_activate_parallel_regions(dsl_state, regular_steps, all_steps) do
+    # Find parallel step names
+    parallel_step_names =
+      all_steps
+      |> Enum.filter(&match?(%AshJobs.Dsl.Entities.ParallelStep{}, &1))
+      |> MapSet.new(& &1.name)
+
+    # Find regular steps whose on_success targets a parallel step
+    activating_actions =
+      regular_steps
+      |> Enum.filter(fn step -> MapSet.member?(parallel_step_names, step.on_success) end)
+      |> Enum.map(& &1.action)
+      |> Enum.uniq()
+
+    Enum.reduce(activating_actions, dsl_state, fn action_name, acc_state ->
+      add_activate_change_to_action(acc_state, action_name)
+    end)
+  end
+
+  defp add_activate_change_to_action(dsl_state, action_name) do
+    actions = Ash.Resource.Info.actions(dsl_state)
+
+    case Enum.find(actions, &(&1.name == action_name)) do
+      nil ->
+        dsl_state
+
+      action ->
+        case Ash.Resource.Builder.build_change(
+               {AshStateMachine.BuiltinChanges.ActivateParallelRegions, []},
+               on: [:update],
+               only_when_valid?: false,
+               description: "AshJobs activate parallel regions"
+             ) do
+          {:ok, change_struct} ->
+            updated_action = %{action | changes: action.changes ++ [change_struct]}
+
+            dsl_state
+            |> remove_action(action_name)
+            |> Spark.Dsl.Transformer.add_entity([:actions], updated_action)
+
+          {:error, _error} ->
+            dsl_state
+        end
+    end
   end
 
   defp add_change_to_all_creates(dsl_state) do

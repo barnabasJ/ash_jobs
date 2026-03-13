@@ -11,7 +11,8 @@ config :ash_jobs, AshJobs.TestRepo,
   port: String.to_integer(System.get_env("POSTGRES_PORT", "5432"))
 
 config :ash_jobs,
-  ecto_repos: [AshJobs.TestRepo]
+  ecto_repos: [AshJobs.TestRepo],
+  ash_domains: [AshJobs.TestDomain]
 
 # Configure Oban for testing
 config :ash_jobs, Oban,

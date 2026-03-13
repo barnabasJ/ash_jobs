@@ -14,5 +14,8 @@ defmodule AshJobs.TestDomain do
     resource AshJobs.TestResources.SingleStepWorkflow
     resource AshJobs.TestResources.MultiTerminalWorkflow
     resource AshJobs.TestResources.CustomStateWorkflow
+    resource AshJobs.TestResources.ParallelWorkflow
+    resource AshJobs.TestResources.PaymentBranch
+    resource AshJobs.TestResources.InventoryBranch
   end
 end

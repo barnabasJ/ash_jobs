@@ -69,6 +69,22 @@ defmodule AshJobs.Dsl.Sections do
           - Regular steps (filtered by step state)
           - Wrapper actions for parallel_steps (e.g., :payment_process)
           """
+        ],
+        read_action: [
+          type: :atom,
+          required: false,
+          doc: """
+          Read action the generated Oban trigger schedulers use to find records to advance.
+
+          Applied as `read_action` on every generated trigger (regular and parallel
+          wrapper). Defaults to the resource's primary read action when unset.
+
+          The main reason to set this is multitenancy: a multitenant resource whose
+          primary read enforces a tenant cannot be scanned by the scheduler (which runs
+          tenant-lessly). Point this at a `multitenancy :allow_global` read action so the
+          scheduler scans across tenants, and set `use_tenant_from_record? true` in the
+          resource's `oban` section so each worker still runs with its record's tenant.
+          """
         ]
       ],
       entities: [

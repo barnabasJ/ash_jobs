@@ -317,6 +317,67 @@ defmodule AshJobs.Transformers.IntegrateObanTest do
       assert %Ash.Query.Call{name: :==} = trigger.where.right
     end
 
+    test "applies the workflow read_action to every generated trigger" do
+      {:ok, resource} =
+        compile_resource_with_oban("""
+          workflow do
+            triggers true
+            read_action :scheduled
+
+            step :load_order do
+              action :load_order
+              on_success :validate_inventory
+            end
+
+            step :validate_inventory do
+              action :validate
+              on_success :completed
+            end
+          end
+
+          actions do
+            defaults [:read]
+
+            read :scheduled do
+              multitenancy :allow_global
+              pagination keyset?: true, required?: false
+            end
+
+            update :load_order, do: accept([])
+            update :validate, do: accept([])
+          end
+        """)
+
+      triggers = AshOban.Info.oban_triggers(resource)
+
+      assert Enum.count(triggers) == 2
+      assert Enum.all?(triggers, &(&1.read_action == :scheduled))
+    end
+
+    test "without read_action, generated triggers fall back to the default read" do
+      {:ok, resource} =
+        compile_resource_with_oban("""
+          workflow do
+            triggers true
+
+            step :load_order do
+              action :load_order
+              on_success :completed
+            end
+          end
+
+          actions do
+            defaults [:read]
+            update :load_order, do: accept([])
+          end
+        """)
+
+      trigger = Enum.find(AshOban.Info.oban_triggers(resource), &(&1.name == :load_order))
+
+      # Unset by AshJobs; AshOban defaults it to the primary read action.
+      assert trigger.read_action in [nil, :read]
+    end
+
     test "step without custom where has only state filter" do
       {:ok, resource} =
         compile_resource_with_oban("""

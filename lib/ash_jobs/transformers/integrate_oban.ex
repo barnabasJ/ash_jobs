@@ -110,6 +110,11 @@ defmodule AshJobs.Transformers.IntegrateOban do
     state_attr =
       Spark.Dsl.Transformer.get_option(dsl_state, [:workflow], :state_attribute) || :state
 
+    # Read action the generated scheduler triggers should use (e.g. a
+    # `multitenancy :allow_global` action for multitenant resources). nil =
+    # inherit the resource's primary read.
+    read_action = Spark.Dsl.Transformer.get_option(dsl_state, [:workflow], :read_action)
+
     # Get the resource module for building module names
     resource_module = Spark.Dsl.Transformer.get_persisted(dsl_state, :module)
 
@@ -137,7 +142,7 @@ defmodule AshJobs.Transformers.IntegrateOban do
       |> Enum.reject(&is_error_handler?/1)
       |> Enum.uniq_by(& &1.name)
       |> Enum.reject(fn step -> MapSet.member?(existing_names, step.name) end)
-      |> Enum.map(&build_trigger(&1, state_attr, resource_module, workflow_steps))
+      |> Enum.map(&build_trigger(&1, state_attr, resource_module, workflow_steps, read_action))
 
     # Generate triggers for wrapper actions from parallel_steps
     # ash_state_machine generates wrapper actions like :payment_process for each branch action
@@ -146,7 +151,8 @@ defmodule AshJobs.Transformers.IntegrateOban do
         parallel_steps,
         state_attr,
         resource_module,
-        existing_names
+        existing_names,
+        read_action
       )
 
     # Combine all triggers
@@ -166,7 +172,8 @@ defmodule AshJobs.Transformers.IntegrateOban do
          parallel_steps,
          state_attr,
          resource_module,
-         existing_names
+         existing_names,
+         read_action
        ) do
     parallel_steps
     |> Enum.flat_map(fn parallel_step ->
@@ -185,7 +192,7 @@ defmodule AshJobs.Transformers.IntegrateOban do
       end)
     end)
     |> Enum.reject(fn info -> MapSet.member?(existing_names, info.wrapper_action_name) end)
-    |> Enum.map(&build_wrapper_trigger(&1, state_attr, resource_module))
+    |> Enum.map(&build_wrapper_trigger(&1, state_attr, resource_module, read_action))
   end
 
   defp get_branch_update_actions(resource) do
@@ -194,7 +201,7 @@ defmodule AshJobs.Transformers.IntegrateOban do
     |> Enum.filter(&(&1.type == :update))
   end
 
-  defp build_wrapper_trigger(info, state_attr, resource_module) do
+  defp build_wrapper_trigger(info, state_attr, resource_module, read_action) do
     # Filter on parent being in the parallel_step state (enter_state)
     state_where = build_state_where_expr(state_attr, info.parallel_step.name)
 
@@ -205,19 +212,21 @@ defmodule AshJobs.Transformers.IntegrateOban do
     # Get queue from parallel_step or default
     queue = Map.get(info.parallel_step, :queue) || :default
 
-    opts = [
-      name: info.wrapper_action_name,
-      action: info.wrapper_action_name,
-      where: state_where,
-      queue: queue,
-      max_attempts: 20,
-      worker_opts: [],
-      state: :active,
-      scheduler_priority: 1,
-      worker_priority: 0,
-      worker_module_name: worker_module,
-      scheduler_module_name: scheduler_module
-    ]
+    opts =
+      [
+        name: info.wrapper_action_name,
+        action: info.wrapper_action_name,
+        where: state_where,
+        queue: queue,
+        max_attempts: 20,
+        worker_opts: [],
+        state: :active,
+        scheduler_priority: 1,
+        worker_priority: 0,
+        worker_module_name: worker_module,
+        scheduler_module_name: scheduler_module
+      ]
+      |> maybe_put_read_action(read_action)
 
     {:ok, trigger} =
       Spark.Dsl.Transformer.build_entity(
@@ -230,7 +239,7 @@ defmodule AshJobs.Transformers.IntegrateOban do
     trigger
   end
 
-  defp build_trigger(step, state_attr, resource_module, workflow_steps) do
+  defp build_trigger(step, state_attr, resource_module, workflow_steps, read_action) do
     # Build where expression: state_attr == step_state
     # Use step.from (if set) as the state to match, otherwise step.name
     # If step has a custom where, combine with state filter using `and`
@@ -288,6 +297,8 @@ defmodule AshJobs.Transformers.IntegrateOban do
         do: Keyword.put(opts, :timeout, step.timeout_seconds * 1000),
         else: opts
 
+    opts = maybe_put_read_action(opts, read_action)
+
     # Use Spark.Dsl.Transformer.build_entity to properly construct the trigger
     {:ok, trigger} =
       Spark.Dsl.Transformer.build_entity(
@@ -299,6 +310,11 @@ defmodule AshJobs.Transformers.IntegrateOban do
 
     trigger
   end
+
+  # Apply the workflow's `read_action` to a generated trigger when set, so the
+  # scheduler scans via that action (e.g. a `multitenancy :allow_global` read).
+  defp maybe_put_read_action(opts, nil), do: opts
+  defp maybe_put_read_action(opts, read_action), do: Keyword.put(opts, :read_action, read_action)
 
   defp build_module_name(resource_module, step_name, type) do
     # Convert step name to PascalCase for module naming

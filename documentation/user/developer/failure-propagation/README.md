@@ -21,6 +21,7 @@ flowchart LR
 | US-FP-02 | Skips propagate transitively across the `needs` graph                    | [US-FP-02](./US-FP-02-transitive-skip-propagation.md)   |
 | US-FP-03 | A `:skipped` terminal state is added to the generated state machine      | [US-FP-03](./US-FP-03-skipped-terminal-state.md)        |
 | US-FP-04 | Skipped rows are counted correctly by `:all` / `{:require_n}` completion | [US-FP-04](./US-FP-04-skipped-counted-by-completion.md) |
+| US-FP-06 | When a row is cancelled, its dependents are skipped, not started         | [US-FP-06](./US-FP-06-cancelled-dependents-skipped.md)  |
 
 ## See also
 

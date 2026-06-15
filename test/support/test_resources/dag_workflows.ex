@@ -130,6 +130,15 @@ defmodule AshJobs.TestResources.DagJob do
       action(:mark_failed)
       on_complete(:failed)
     end
+
+    # Manual cancel from the pending state: cancelling a row drives it to the
+    # non-success `:cancelled` terminal, which skips its downstream dependents.
+    step :cancel do
+      from(:pending)
+      action(:cancel)
+      on_complete(:cancelled)
+      trigger(false)
+    end
   end
 
   relationships do
@@ -186,6 +195,11 @@ defmodule AshJobs.TestResources.DagJob do
       accept([])
     end
 
+    update :cancel do
+      require_atomic?(false)
+      accept([])
+    end
+
     update :skip do
       require_atomic?(false)
       accept([])
@@ -196,6 +210,7 @@ defmodule AshJobs.TestResources.DagJob do
     define(:create)
     define(:run)
     define(:mark_failed)
+    define(:cancel)
     define(:get_by_id, action: :read, get_by: [:id])
   end
 end

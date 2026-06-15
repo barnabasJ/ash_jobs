@@ -253,6 +253,35 @@ defmodule AshJobs.Integration.RuntimeDagWorkflowTest do
     assert DateTime.compare(reload(omega).completed_at, reload(alpha).completed_at) != :gt
   end
 
+  @tag story: "US-NGD-03"
+  test "the generated pending trigger where-filter matches only rows with all needs satisfied" do
+    parent = run()
+
+    manual(fn ->
+      need = DagJob.create!(%{parent_id: parent.id, name: "need"})
+      DagJob.create!(%{parent_id: parent.id, name: "dependent", need_ids: [need.id]})
+      DagJob.create!(%{parent_id: parent.id, name: "ready"})
+    end)
+
+    # The needs gate is declarative: it lives in the AshOban trigger `where`, so
+    # the scheduler itself only scans ready rows. Apply that same `where` and
+    # confirm the unmet dependent is filtered out while the no-needs rows match.
+    pending_where =
+      DagJob
+      |> AshOban.Info.oban_triggers()
+      |> Enum.find(&(&1.name == :pending))
+      |> Map.fetch!(:where)
+
+    matched =
+      DagJob
+      |> Ash.Query.do_filter(pending_where)
+      |> Ash.read!()
+      |> Enum.map(& &1.name)
+      |> Enum.sort()
+
+    assert matched == ["need", "ready"]
+  end
+
   @tag story: "US-FP-01"
   test "failed row skips direct dependents without running them" do
     parent = run()
@@ -332,6 +361,31 @@ defmodule AshJobs.Integration.RuntimeDagWorkflowTest do
 
     states = DagJob |> Ash.read!() |> Enum.map(& &1.state) |> Enum.sort()
     assert states == [:failed, :skipped, :skipped]
+  end
+
+  @tag story: "US-FP-06"
+  test "cancelled row skips its dependents like a failure" do
+    parent = run()
+
+    {need, dependent, leaf} =
+      manual(fn ->
+        need = DagJob.create!(%{parent_id: parent.id, name: "need"})
+
+        dependent =
+          DagJob.create!(%{parent_id: parent.id, name: "dependent", need_ids: [need.id]})
+
+        leaf = DagJob.create!(%{parent_id: parent.id, name: "leaf", need_ids: [dependent.id]})
+        {need, dependent, leaf}
+      end)
+
+    DagJob.cancel!(need)
+
+    # `:cancelled` is a non-success terminal, so the dependent is skipped (never
+    # started) and the skip propagates transitively to the leaf.
+    assert reload(need).state == :cancelled
+    assert reload(dependent).state == :skipped
+    assert reload(dependent).run_count == 0
+    assert reload(leaf).state == :skipped
   end
 
   @tag story: "US-CYC-01"

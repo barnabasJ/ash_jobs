@@ -387,7 +387,11 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
 
   defp terminal_states, do: [:completed, :failed, :cancelled, :skipped]
 
-  defp failure_terminal_states, do: [:failed, :skipped]
+  # Non-success terminal states. `:completed` is the only success state; a
+  # `:failed`, `:cancelled`, or already-`:skipped` row propagates a skip to its
+  # downstream dependents rather than letting them start. (A cancelled need must
+  # skip its dependents, not look "satisfied" to the needs gate.)
+  defp failure_terminal_states, do: [:failed, :cancelled, :skipped]
 
   defp generate_state_callbacks(dsl_state, workflow_steps) do
     # Filter to regular steps that have any callbacks defined

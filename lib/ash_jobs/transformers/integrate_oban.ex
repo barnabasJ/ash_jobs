@@ -60,6 +60,8 @@ defmodule AshJobs.Transformers.IntegrateOban do
 
   use Spark.Dsl.Transformer
 
+  import Ash.Expr, only: [expr: 1, ref: 1]
+
   # Run after our own transformers but before all AshOban and AshStateMachine transformers
   def after?(AshJobs.Transformers.GenerateErrorActions), do: true
   def after?(AshJobs.Transformers.IntegrateStateMachine), do: true
@@ -133,6 +135,14 @@ defmodule AshJobs.Transformers.IntegrateOban do
     regular_steps = Enum.reject(workflow_steps, &is_parallel_step?/1)
     parallel_steps = Enum.filter(workflow_steps, &is_parallel_step?/1)
 
+    # Needs-gated readiness: when the resource declares a `needs` relationship,
+    # the trigger for the initial (entry) state must only fire once every `need`
+    # is in a success state — expressed declaratively in the trigger `where` so
+    # the AshOban scheduler itself respects the DAG edges (not just the imperative
+    # readiness helpers). The success-state set comes from the AshStateMachine
+    # Info API so it matches what the coordinator counts.
+    needs_gate = build_needs_gate(dsl_state, workflow_steps, state_attr)
+
     # Generate triggers for automatic regular steps only (trigger != false)
     # Skip error handler steps (they use on_complete, not on_success)
     # Skip steps that already have triggers defined
@@ -142,7 +152,9 @@ defmodule AshJobs.Transformers.IntegrateOban do
       |> Enum.reject(&is_error_handler?/1)
       |> Enum.uniq_by(& &1.name)
       |> Enum.reject(fn step -> MapSet.member?(existing_names, step.name) end)
-      |> Enum.map(&build_trigger(&1, state_attr, resource_module, workflow_steps, read_action))
+      |> Enum.map(
+        &build_trigger(&1, state_attr, resource_module, workflow_steps, read_action, needs_gate)
+      )
 
     # Generate triggers for wrapper actions from parallel_steps
     # ash_state_machine generates wrapper actions like :payment_process for each branch action
@@ -242,12 +254,12 @@ defmodule AshJobs.Transformers.IntegrateOban do
     trigger
   end
 
-  defp build_trigger(step, state_attr, resource_module, workflow_steps, read_action) do
+  defp build_trigger(step, state_attr, resource_module, workflow_steps, read_action, needs_gate) do
     # Build where expression: state_attr == step_state
     # Use step.from (if set) as the state to match, otherwise step.name
     # If step has a custom where, combine with state filter using `and`
     step_state = step.from || step.name
-    state_where = build_state_where_expr(state_attr, step_state)
+    state_where = state_where_expr(state_attr, step_state, needs_gate)
     where_expr = combine_where_exprs(state_where, step.where)
 
     # Generate module names for worker and scheduler
@@ -331,6 +343,78 @@ defmodule AshJobs.Transformers.IntegrateOban do
     # or: Resource.AshOban.Scheduler.LoadOrder
     Module.concat([resource_module, AshOban, type, step_module_name])
   end
+
+  # Build the needs-gate descriptor from the dsl_state, or nil when the resource
+  # declares no `needs` relationship. The gate applies to the entry (initial)
+  # state — the same state `IntegrateStateMachine` picks as the initial state
+  # (the first workflow step).
+  defp build_needs_gate(dsl_state, workflow_steps, state_attr) do
+    case AshJobs.Info.needs_relationship(dsl_state) do
+      nil ->
+        nil
+
+      relationship ->
+        %{
+          relationship: relationship,
+          success_states: success_terminal_states(dsl_state, state_attr),
+          gated_state: List.first(workflow_steps).name,
+          state_attr: state_attr
+        }
+    end
+  end
+
+  # Success terminal states, computed from the DSL state mid-transform.
+  # `AshStateMachine.Info.state_machine_success_terminal_states/1` reads a
+  # persisted value (`:all_state_machine_states`) that a *later* AshStateMachine
+  # transformer sets — not yet available when this transformer runs — so we
+  # replicate its logic from data already in the dsl: declared states with no
+  # outgoing transition (terminal), minus the failure states. This matches the
+  # Info API on the compiled resource, so the gate's notion of "success" matches
+  # what the parallel coordinator counts.
+  defp success_terminal_states(dsl_state, state_attr) do
+    from_states =
+      dsl_state
+      |> Spark.Dsl.Extension.get_entities([:state_machine, :transitions])
+      |> List.wrap()
+      |> Enum.flat_map(& &1.from)
+      |> MapSet.new()
+
+    failure_states =
+      Spark.Dsl.Transformer.get_option(dsl_state, [:state_machine], :failure_states) || []
+
+    dsl_state
+    |> declared_states(state_attr)
+    |> Enum.reject(&MapSet.member?(from_states, &1))
+    |> Kernel.--(failure_states)
+  end
+
+  defp declared_states(dsl_state, state_attr) do
+    attributes = Spark.Dsl.Extension.get_entities(dsl_state, [:attributes])
+
+    case Enum.find(attributes, &(&1.name == state_attr)) do
+      nil -> []
+      attribute -> Keyword.get(attribute.constraints || [], :one_of, [])
+    end
+  end
+
+  # Gated entry state: ready iff the row is in the entry state AND has no unmet
+  # need (no `need` in a non-success state). A row with zero needs satisfies the
+  # `not exists(...)` vacuously, so it is ready immediately. The `needs` path is
+  # pinned because the relationship name is configurable.
+  defp state_where_expr(state_attr, step_state, %{
+         gated_state: gated_state,
+         relationship: relationship,
+         success_states: success_states
+       })
+       when step_state == gated_state do
+    expr(
+      ^ref(state_attr) == ^step_state and
+        not exists(^[relationship], ^ref(state_attr) not in ^success_states)
+    )
+  end
+
+  defp state_where_expr(state_attr, step_state, _needs_gate),
+    do: build_state_where_expr(state_attr, step_state)
 
   defp build_state_where_expr(state_attr, step_name) do
     # Build Ash filter expression: state_attr == step_name

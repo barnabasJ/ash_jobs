@@ -429,4 +429,29 @@ defmodule AshJobs.Integration.RuntimeDagWorkflowTest do
   test "cycle detection terminates on a self-cycle without recursive scheduling" do
     assert {:error, %CycleDetected{cycle: [:a, :a]}} = AshJobs.CycleDetection.detect([:a], a: :a)
   end
+
+  @tag story: "US-RSB-06"
+  test "a relationship-sourced parallel step finalizes its parent when its branches complete" do
+    # Given a run whose `:run_jobs` region fans out over two independent jobs
+    parent = run()
+
+    inline(fn ->
+      # creating each job self-starts it (no needs) and runs it to `:completed`
+      DagJob.create!(%{parent_id: parent.id, name: "a"})
+      DagJob.create!(%{parent_id: parent.id, name: "b"})
+    end)
+
+    # ...so both branch rows have reached a success terminal state
+    assert DagJob |> Ash.read!() |> Enum.map(& &1.state) == [:completed, :completed]
+
+    # When the scheduler scans the parent's completion trigger
+    assert %{success: success} =
+             AshOban.Test.schedule_and_run_triggers({DagRun, :handle_run_jobs_complete})
+
+    assert success >= 1
+
+    # Then the parent finalizes to `:completed` on its own — no manual
+    # `check_parallel_completion` call needed
+    assert reload(parent).state == :completed
+  end
 end

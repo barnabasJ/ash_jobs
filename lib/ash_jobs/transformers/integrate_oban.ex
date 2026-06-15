@@ -167,8 +167,24 @@ defmodule AshJobs.Transformers.IntegrateOban do
         read_action
       )
 
+    # Dynamic parallel_steps fan out over a relationship's runtime rows, which
+    # run their own workflows independently — so, unlike static regions (driven
+    # through the parent's generated wrapper actions), nothing transitions the
+    # parent out of the region state when the children finish. Generate a
+    # parent-side completion trigger, gated on the children being terminal via
+    # the same `exists` pattern the needs gate uses, so the parent finalizes for
+    # real instead of relying on a manual `check_parallel_completion` call.
+    completion_triggers =
+      generate_dynamic_completion_triggers(
+        parallel_steps,
+        state_attr,
+        resource_module,
+        existing_names,
+        read_action
+      )
+
     # Combine all triggers
-    all_triggers = regular_triggers ++ wrapper_triggers
+    all_triggers = regular_triggers ++ wrapper_triggers ++ completion_triggers
 
     # Add each trigger to the DSL state
     Enum.reduce(all_triggers, dsl_state, fn trigger, acc_state ->
@@ -214,6 +230,111 @@ defmodule AshJobs.Transformers.IntegrateOban do
     resource
     |> Ash.Resource.Info.actions()
     |> Enum.filter(&(&1.type == :update))
+  end
+
+  # Standard ash_jobs child terminal states (see IntegrateStateMachine). A
+  # dynamic-region child is itself an ash_jobs resource, so it uses this set.
+  @child_success_states [:completed]
+  @child_failure_states [:failed, :cancelled, :skipped]
+
+  defp generate_dynamic_completion_triggers(
+         parallel_steps,
+         state_attr,
+         resource_module,
+         existing_names,
+         read_action
+       ) do
+    parallel_steps
+    |> Enum.filter(&dynamic_parallel_step?/1)
+    |> Enum.flat_map(&completion_triggers_for(&1, state_attr, resource_module, read_action))
+    |> Enum.reject(fn trigger -> MapSet.member?(existing_names, trigger.name) end)
+  end
+
+  defp dynamic_parallel_step?(ps) do
+    Enum.any?(ps.branches || [], &AshJobs.Dsl.Entities.Branch.dynamic?/1)
+  end
+
+  # For an `:all` dynamic region the parent is decided purely by the children's
+  # terminal states, so it is expressible as a `where`: complete once no child is
+  # outside a success terminal, errored once any child reached a failure terminal.
+  # `:any` / `{:require_n, n}` need a runtime count and are not yet driven here.
+  defp completion_triggers_for(%{completion_strategy: :all} = ps, state_attr, resource_module, ra) do
+    branch = Enum.find(ps.branches, &AshJobs.Dsl.Entities.Branch.dynamic?/1)
+    relationship = AshJobs.Dsl.Entities.Branch.relationship_name(branch)
+    region_state = ps.name
+
+    complete =
+      build_completion_trigger(
+        :"handle_#{ps.name}_complete",
+        all_succeeded_where(state_attr, region_state, relationship),
+        ps,
+        resource_module,
+        ra
+      )
+
+    if ps.on_error do
+      error =
+        build_completion_trigger(
+          :"handle_#{ps.name}_error",
+          any_failed_where(state_attr, region_state, relationship),
+          ps,
+          resource_module,
+          ra
+        )
+
+      [complete, error]
+    else
+      [complete]
+    end
+  end
+
+  defp completion_triggers_for(_ps, _state_attr, _resource_module, _ra), do: []
+
+  # parent in the region state AND every child row is in a success terminal
+  defp all_succeeded_where(state_attr, region_state, relationship) do
+    success = @child_success_states
+
+    expr(
+      ^ref(state_attr) == ^region_state and
+        not exists(^[relationship], ^ref(:state) not in ^success)
+    )
+  end
+
+  # parent in the region state AND at least one child row reached a failure terminal
+  defp any_failed_where(state_attr, region_state, relationship) do
+    failure = @child_failure_states
+
+    expr(
+      ^ref(state_attr) == ^region_state and
+        exists(^[relationship], ^ref(:state) in ^failure)
+    )
+  end
+
+  defp build_completion_trigger(action_name, where_expr, ps, resource_module, read_action) do
+    worker_module = build_module_name(resource_module, action_name, :Worker)
+    scheduler_module = build_module_name(resource_module, action_name, :Scheduler)
+    queue = Map.get(ps, :queue) || :default
+
+    opts =
+      [
+        name: action_name,
+        action: action_name,
+        where: where_expr,
+        queue: queue,
+        max_attempts: 20,
+        worker_opts: [],
+        state: :active,
+        scheduler_priority: 1,
+        worker_priority: 0,
+        worker_module_name: worker_module,
+        scheduler_module_name: scheduler_module
+      ]
+      |> maybe_put_read_action(read_action)
+
+    {:ok, trigger} =
+      Spark.Dsl.Transformer.build_entity(AshOban, [:oban, :triggers], :trigger, opts)
+
+    trigger
   end
 
   defp build_wrapper_trigger(info, state_attr, resource_module, read_action) do

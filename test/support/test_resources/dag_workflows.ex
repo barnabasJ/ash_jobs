@@ -11,6 +11,8 @@ defmodule AshJobs.TestResources.DagRun do
   end
 
   workflow do
+    triggers(true)
+
     parallel_step :run_jobs do
       completion_strategy(:all)
       on_complete(:completed)

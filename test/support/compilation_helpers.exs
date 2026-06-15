@@ -80,9 +80,6 @@ defmodule AshJobs.Test.CompilationHelpers do
     rescue
       error ->
         {:error, error}
-    catch
-      :error, reason ->
-        {:error, reason}
     end
   end
 
@@ -172,26 +169,43 @@ defmodule AshJobs.Test.CompilationHelpers do
     * `ExUnit.AssertionError` if no error/warning matches the pattern
   """
   def assert_compile_error(error_pattern, dsl_code) do
-    # Capture IO during compilation to catch warnings
+    test_process = self()
+
+    # Capture IO and Logger output during compilation to catch Spark verifier
+    # failures, which may be emitted as warnings instead of returned errors.
     output =
       ExUnit.CaptureIO.capture_io(:stderr, fn ->
-        case compile_resource(dsl_code) do
-          {:ok, _module} ->
-            :ok
+        log =
+          ExUnit.CaptureLog.capture_log(fn ->
+            case compile_resource(dsl_code) do
+              {:ok, _module} ->
+                :ok
 
-          {:error, %Spark.Error.DslError{message: message}} ->
-            # Direct error - check if it matches
-            if Regex.match?(error_pattern, message) do
-              :ok
-            else
-              IO.puts(:stderr, "DslError: #{message}")
+              {:error, %Spark.Error.DslError{message: message}} ->
+                # Direct error - check if it matches
+                if Regex.match?(error_pattern, message) do
+                  :ok
+                else
+                  IO.puts(:stderr, "DslError: #{message}")
+                end
+
+              {:error, error} ->
+                error_message = Exception.message(error)
+                IO.puts(:stderr, "Error: #{error_message}")
             end
+          end)
 
-          {:error, error} ->
-            error_message = Exception.message(error)
-            IO.puts(:stderr, "Error: #{error_message}")
-        end
+        send(test_process, {:compile_log, log})
       end)
+
+    log =
+      receive do
+        {:compile_log, log} -> log
+      after
+        1_000 -> ExUnit.Assertions.flunk("expected compilation log capture")
+      end
+
+    output = output <> log
 
     # Check if the captured output contains the expected error pattern
     unless Regex.match?(error_pattern, output) do

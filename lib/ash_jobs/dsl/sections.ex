@@ -85,6 +85,18 @@ defmodule AshJobs.Dsl.Sections do
           scheduler scans across tenants, and set `use_tenant_from_record? true` in the
           resource's `oban` section so each worker still runs with its record's tenant.
           """
+        ],
+        needs: [
+          type: :atom,
+          required: false,
+          doc:
+            "Relationship on workflow rows that lists prerequisite rows which must reach success before this row can run."
+        ],
+        push_dependents: [
+          type: :boolean,
+          default: true,
+          doc:
+            "Whether a row reaching success should immediately push dependents whose needs are now satisfied."
         ]
       ],
       entities: [
@@ -106,7 +118,7 @@ defmodule AshJobs.Dsl.Sections do
               %Spark.Dsl.Entity{
                 name: :branch,
                 target: Branch,
-                args: [:name, :resource],
+                args: Branch.args(),
                 schema: Branch.schema(),
                 describe: "Defines a branch workflow resource"
               }

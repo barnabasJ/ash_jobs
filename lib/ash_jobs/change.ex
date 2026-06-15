@@ -46,20 +46,13 @@ defmodule AshJobs.Change do
 
       # Only try to trigger if workflow-level triggers are enabled
       if AshJobs.Info.triggers?(resource) do
-        unless current_state in [:completed, :failed, :cancelled] do
+        unless AshJobs.Readiness.terminal_state?(record) do
           case AshJobs.Info.step(resource, current_state) do
             {:ok, step} when step.trigger == true ->
-              case AshOban.run_trigger(record, current_state) do
-                %Oban.Job{} = _job ->
-                  :ok
-
-                {:error, reason} ->
-                  Logger.error(
-                    "Failed to trigger initial step #{current_state}: #{inspect(reason)}"
-                  )
-
-                  :ok
-              end
+              handle_trigger_result(
+                AshJobs.Readiness.run_trigger_if_ready(record, current_state),
+                "initial step #{current_state}"
+              )
 
             _ ->
               :ok
@@ -82,25 +75,55 @@ defmodule AshJobs.Change do
     |> Ash.Changeset.after_action(fn _changeset, record ->
       # Only try to trigger if workflow-level triggers are enabled
       if AshJobs.Info.triggers?(resource) do
-        unless next_state in [:completed, :failed, :cancelled] do
-          case AshJobs.Info.step(resource, next_state) do
-            {:ok, step} when step.trigger == true ->
-              case AshOban.run_trigger(record, next_state) do
-                %Oban.Job{} = _job ->
-                  :ok
+        cond do
+          AshJobs.Readiness.success_state?(record) ->
+            AshJobs.Readiness.push_dependents(record)
 
-                {:error, reason} ->
-                  Logger.error("Failed to trigger next step #{next_state}: #{inspect(reason)}")
-                  :ok
-              end
+          AshJobs.Readiness.terminal_state?(record) ->
+            _result = AshJobs.FailurePropagation.propagate_skip(record)
+            :ok
 
-            _ ->
-              :ok
-          end
+          true ->
+            maybe_trigger_next_step(record, resource, next_state)
         end
       end
 
       {:ok, record}
     end)
+  end
+
+  defp maybe_trigger_next_step(record, resource, next_state) do
+    unless AshJobs.Readiness.terminal_state?(record) do
+      case AshJobs.Info.step(resource, next_state) do
+        {:ok, step} when step.trigger == true ->
+          handle_trigger_result(
+            AshJobs.Readiness.run_trigger_if_ready(record, next_state),
+            "next step #{next_state}"
+          )
+
+        _ ->
+          :ok
+      end
+    end
+  end
+
+  defp handle_trigger_result(result, label) do
+    case result do
+      %Oban.Job{} ->
+        :ok
+
+      :not_ready ->
+        :ok
+
+      :terminal ->
+        :ok
+
+      {:error, reason} ->
+        Logger.error("Failed to trigger #{label}: #{inspect(reason)}")
+        :ok
+
+      _ ->
+        :ok
+    end
   end
 end

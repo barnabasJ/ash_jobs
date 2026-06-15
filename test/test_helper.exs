@@ -20,4 +20,7 @@ Ecto.Migrator.run(
 # Set up Ecto sandbox for concurrent tests
 Ecto.Adapters.SQL.Sandbox.mode(AshJobs.TestRepo, :manual)
 
-ExUnit.start()
+# `:st_fixture` modules are compiled-only fixtures for the doc-conformance gate
+# (`test/doc_conformance_test.exs`); they are inspected via the ExUnit registry,
+# never run as part of the suite.
+ExUnit.start(exclude: [:st_fixture])

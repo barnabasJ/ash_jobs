@@ -7,6 +7,8 @@ defmodule AshJobs.Integration.ComprehensiveWorkflowTest do
   use AshJobs.DataCase, async: false
   use Oban.Testing, repo: AshJobs.TestRepo
 
+  import ExUnit.CaptureLog
+
   alias AshJobs.TestResources.{
     SimpleWorkflow,
     BranchingWorkflow,
@@ -97,21 +99,25 @@ defmodule AshJobs.Integration.ComprehensiveWorkflowTest do
       assert job.error_message == nil
     end
 
+    @tag story: "US-WEH-02"
     test "error at start step routes to handle_start_error" do
       {:ok, job} = BranchingWorkflow.create(%{name: "branch-002", force_error_at: "start"})
       assert job.state == :start
 
-      error =
-        try do
-          Oban.Testing.with_testing_mode(:inline, fn ->
-            AshOban.run_trigger(job, :start)
-          end)
+      {error, log} =
+        with_log(fn ->
+          try do
+            Oban.Testing.with_testing_mode(:inline, fn ->
+              AshOban.run_trigger(job, :start)
+            end)
 
-          nil
-        catch
-          _kind, error -> error
-        end
+            nil
+          catch
+            _kind, error -> error
+          end
+        end)
 
+      assert log =~ "Forced error at start"
       assert error != nil
 
       {:ok, job} = BranchingWorkflow.notify_start_error(job, %{error: error})
@@ -120,22 +126,26 @@ defmodule AshJobs.Integration.ComprehensiveWorkflowTest do
       assert job.error_message != nil
     end
 
+    @tag story: "US-WEH-02"
     test "error at step_one routes to handle_step_one_error" do
       {:ok, job} = BranchingWorkflow.create(%{name: "branch-003", force_error_at: "step_one"})
 
-      error =
-        try do
-          Oban.Testing.with_testing_mode(:inline, fn ->
-            AshOban.run_trigger(job, :start)
-            job = TestRepo.get!(BranchingWorkflow, job.id)
-            AshOban.run_trigger(job, :step_one)
-          end)
+      {error, log} =
+        with_log(fn ->
+          try do
+            Oban.Testing.with_testing_mode(:inline, fn ->
+              AshOban.run_trigger(job, :start)
+              job = TestRepo.get!(BranchingWorkflow, job.id)
+              AshOban.run_trigger(job, :step_one)
+            end)
 
-          nil
-        catch
-          _kind, error -> error
-        end
+            nil
+          catch
+            _kind, error -> error
+          end
+        end)
 
+      assert log =~ "Forced error at step_one"
       assert error != nil
 
       job = TestRepo.get!(BranchingWorkflow, job.id)
@@ -145,24 +155,28 @@ defmodule AshJobs.Integration.ComprehensiveWorkflowTest do
       assert job.error_message != nil
     end
 
+    @tag story: "US-WEH-02"
     test "error at step_two routes to handle_step_two_error" do
       {:ok, job} = BranchingWorkflow.create(%{name: "branch-004", force_error_at: "step_two"})
 
-      error =
-        try do
-          Oban.Testing.with_testing_mode(:inline, fn ->
-            AshOban.run_trigger(job, :start)
-            job = TestRepo.get!(BranchingWorkflow, job.id)
-            AshOban.run_trigger(job, :step_one)
-            job = TestRepo.get!(BranchingWorkflow, job.id)
-            AshOban.run_trigger(job, :step_two)
-          end)
+      {error, log} =
+        with_log(fn ->
+          try do
+            Oban.Testing.with_testing_mode(:inline, fn ->
+              AshOban.run_trigger(job, :start)
+              job = TestRepo.get!(BranchingWorkflow, job.id)
+              AshOban.run_trigger(job, :step_one)
+              job = TestRepo.get!(BranchingWorkflow, job.id)
+              AshOban.run_trigger(job, :step_two)
+            end)
 
-          nil
-        catch
-          _kind, error -> error
-        end
+            nil
+          catch
+            _kind, error -> error
+          end
+        end)
 
+      assert log =~ "Forced error at step_two"
       assert error != nil
 
       job = TestRepo.get!(BranchingWorkflow, job.id)
@@ -172,6 +186,7 @@ defmodule AshJobs.Integration.ComprehensiveWorkflowTest do
       assert job.error_message != nil
     end
 
+    @tag story: "US-WEH-01"
     test "error handlers can be called directly" do
       {:ok, job} = BranchingWorkflow.create(%{name: "branch-005", force_error_at: nil})
 
@@ -394,17 +409,31 @@ defmodule AshJobs.Integration.ComprehensiveWorkflowTest do
   end
 
   describe "error edge cases" do
-    test "calling non-error-handler action on error handler step" do
-      {:ok, job} = BranchingWorkflow.create(%{name: "edge-001", force_error_at: nil})
+    @tag story: "US-WEH-01"
+    test "error handler actions preserve error payloads from valid source states" do
+      {:ok, start_job} = BranchingWorkflow.create(%{name: "edge-start", force_error_at: nil})
 
-      {:ok, job} = BranchingWorkflow.notify_start_error(job, %{error: "string error"})
-      assert job.error_message == "string error"
+      {:ok, start_job} = BranchingWorkflow.notify_start_error(start_job, %{error: "string error"})
+      assert start_job.error_message == "string error"
 
-      {:ok, job} = BranchingWorkflow.notify_step_one_error(job, %{error: %{message: "map error"}})
-      assert job.error_message == "map error"
+      {:ok, step_one_job} =
+        BranchingWorkflow.create(%{name: "edge-step-one", force_error_at: nil})
 
-      {:ok, job} = BranchingWorkflow.notify_step_two_error(job, %{error: nil})
-      assert job.error_message == "Error at step_two"
+      {:ok, step_one_job} = BranchingWorkflow.initialize(step_one_job)
+
+      {:ok, step_one_job} =
+        BranchingWorkflow.notify_step_one_error(step_one_job, %{error: %{message: "map error"}})
+
+      assert step_one_job.error_message == "map error"
+
+      {:ok, step_two_job} =
+        BranchingWorkflow.create(%{name: "edge-step-two", force_error_at: nil})
+
+      {:ok, step_two_job} = BranchingWorkflow.initialize(step_two_job)
+      {:ok, step_two_job} = BranchingWorkflow.process_one(step_two_job)
+
+      {:ok, step_two_job} = BranchingWorkflow.notify_step_two_error(step_two_job, %{error: nil})
+      assert step_two_job.error_message == "Error at step_two"
     end
   end
 

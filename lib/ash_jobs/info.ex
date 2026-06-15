@@ -202,6 +202,30 @@ defmodule AshJobs.Info do
     Spark.Dsl.Extension.get_opt(resource, [:workflow], :triggers, false)
   end
 
+  @doc "Returns the relationship that lists prerequisite rows for a workflow row."
+  @spec needs_relationship(resource :: Ash.Resource.t() | map()) :: atom() | nil
+  def needs_relationship(resource) do
+    Spark.Dsl.Extension.get_opt(resource, [:workflow], :needs, nil)
+  end
+
+  @doc "Returns whether successful rows should immediately push ready dependents."
+  @spec push_dependents?(resource :: Ash.Resource.t() | map()) :: boolean()
+  def push_dependents?(resource) do
+    Spark.Dsl.Extension.get_opt(resource, [:workflow], :push_dependents, true)
+  end
+
+  @doc "Returns terminal states generated or configured for the workflow resource."
+  @spec terminal_states(resource :: Ash.Resource.t() | map()) :: list(atom())
+  def terminal_states(resource) do
+    AshStateMachine.Info.state_machine_terminal_states(resource)
+  end
+
+  @doc "Returns terminal states that count as successful workflow completion."
+  @spec success_terminal_states(resource :: Ash.Resource.t() | map()) :: list(atom())
+  def success_terminal_states(resource) do
+    AshStateMachine.Info.state_machine_success_terminal_states(resource)
+  end
+
   @doc """
   Returns entry point steps (steps with no incoming references).
 
@@ -250,7 +274,7 @@ defmodule AshJobs.Info do
       #=> [:mark_complete, :handle_error]
   """
   def terminal_steps(resource) do
-    terminal_states = [:completed, :failed, :cancelled]
+    terminal_states = [:completed, :failed, :cancelled, :skipped]
 
     steps(resource)
     |> Enum.filter(fn entity ->

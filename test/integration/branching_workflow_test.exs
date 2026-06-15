@@ -9,6 +9,8 @@ defmodule AshJobs.Integration.BranchingWorkflowTest do
   use AshJobs.DataCase, async: false
   use Oban.Testing, repo: AshJobs.TestRepo
 
+  import ExUnit.CaptureLog
+
   alias AshJobs.TestResources.BranchingWorkflow
 
   setup do
@@ -34,21 +36,25 @@ defmodule AshJobs.Integration.BranchingWorkflowTest do
   end
 
   describe "error handling" do
+    @tag story: "US-WEH-02"
     test "error at start step routes to handle_start_error" do
       {:ok, job} = BranchingWorkflow.create(%{name: "error-start", force_error_at: "start"})
       assert job.state == :start
 
-      error =
-        try do
-          Oban.Testing.with_testing_mode(:inline, fn ->
-            AshOban.run_trigger(job, :start)
-          end)
+      {error, log} =
+        with_log(fn ->
+          try do
+            Oban.Testing.with_testing_mode(:inline, fn ->
+              AshOban.run_trigger(job, :start)
+            end)
 
-          nil
-        catch
-          _kind, error -> error
-        end
+            nil
+          catch
+            _kind, error -> error
+          end
+        end)
 
+      assert log =~ "Forced error at start"
       assert error != nil
 
       {:ok, job} = BranchingWorkflow.notify_start_error(job, %{error: error})
@@ -57,22 +63,26 @@ defmodule AshJobs.Integration.BranchingWorkflowTest do
       assert job.error_message != nil
     end
 
+    @tag story: "US-WEH-02"
     test "error at step_one routes to handle_step_one_error" do
       {:ok, job} = BranchingWorkflow.create(%{name: "error-step-one", force_error_at: "step_one"})
 
-      error =
-        try do
-          Oban.Testing.with_testing_mode(:inline, fn ->
-            AshOban.run_trigger(job, :start)
-            job = BranchingWorkflow.get_by_id!(job.id)
-            AshOban.run_trigger(job, :step_one)
-          end)
+      {error, log} =
+        with_log(fn ->
+          try do
+            Oban.Testing.with_testing_mode(:inline, fn ->
+              AshOban.run_trigger(job, :start)
+              job = BranchingWorkflow.get_by_id!(job.id)
+              AshOban.run_trigger(job, :step_one)
+            end)
 
-          nil
-        catch
-          _kind, error -> error
-        end
+            nil
+          catch
+            _kind, error -> error
+          end
+        end)
 
+      assert log =~ "Forced error at step_one"
       assert error != nil
 
       job = BranchingWorkflow.get_by_id!(job.id)
@@ -82,24 +92,28 @@ defmodule AshJobs.Integration.BranchingWorkflowTest do
       assert job.error_message != nil
     end
 
+    @tag story: "US-WEH-02"
     test "error at step_two routes to handle_step_two_error" do
       {:ok, job} = BranchingWorkflow.create(%{name: "error-step-two", force_error_at: "step_two"})
 
-      error =
-        try do
-          Oban.Testing.with_testing_mode(:inline, fn ->
-            AshOban.run_trigger(job, :start)
-            job = BranchingWorkflow.get_by_id!(job.id)
-            AshOban.run_trigger(job, :step_one)
-            job = BranchingWorkflow.get_by_id!(job.id)
-            AshOban.run_trigger(job, :step_two)
-          end)
+      {error, log} =
+        with_log(fn ->
+          try do
+            Oban.Testing.with_testing_mode(:inline, fn ->
+              AshOban.run_trigger(job, :start)
+              job = BranchingWorkflow.get_by_id!(job.id)
+              AshOban.run_trigger(job, :step_one)
+              job = BranchingWorkflow.get_by_id!(job.id)
+              AshOban.run_trigger(job, :step_two)
+            end)
 
-          nil
-        catch
-          _kind, error -> error
-        end
+            nil
+          catch
+            _kind, error -> error
+          end
+        end)
 
+      assert log =~ "Forced error at step_two"
       assert error != nil
 
       job = BranchingWorkflow.get_by_id!(job.id)
@@ -109,6 +123,7 @@ defmodule AshJobs.Integration.BranchingWorkflowTest do
       assert job.error_message != nil
     end
 
+    @tag story: "US-WEH-01"
     test "error handlers can be called directly" do
       {:ok, job} = BranchingWorkflow.create(%{name: "direct-error-call"})
 
@@ -136,11 +151,13 @@ defmodule AshJobs.Integration.BranchingWorkflowTest do
       assert job.step_two_data == "completed"
     end
 
-    test "error transitions to failed state" do
+    @tag story: "US-WEH-01"
+    test "a string error payload from a valid source state persists and routes to failed" do
       {:ok, job} = BranchingWorkflow.create(%{name: "error-transition"})
 
       {:ok, job} = BranchingWorkflow.notify_start_error(job, %{error: "Test"})
       assert job.state == :failed
+      assert job.error_message == "Test"
     end
   end
 

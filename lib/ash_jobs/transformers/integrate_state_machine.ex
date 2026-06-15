@@ -106,10 +106,10 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
     step_states =
       workflow_steps
       |> Enum.reject(&MapSet.member?(error_handler_names, &1.name))
-      |> Enum.reject(fn step -> step.from != nil end)
+      |> Enum.reject(&uses_existing_state?/1)
       |> Enum.map(& &1.name)
 
-    terminal_states = [:completed, :failed, :cancelled]
+    terminal_states = terminal_states()
 
     # Collect target states from regular steps
     regular_referenced =
@@ -140,7 +140,7 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
 
     # Combine step states and referenced states, sort for consistency
     # Note: error handler step names are excluded from states
-    workflow_states = Enum.sort(Enum.uniq(step_states ++ referenced_states))
+    workflow_states = Enum.sort(Enum.uniq(step_states ++ referenced_states ++ terminal_states))
 
     # When merging, combine with existing state attribute's one_of values
     all_states =
@@ -152,16 +152,20 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
       end
 
     # Update the state attribute to have one_of constraint with all states
-    dsl_state = update_state_attribute_constraints(dsl_state, state_attr, all_states, merge?)
+    dsl_state = update_state_attribute_constraints(dsl_state, state_attr, all_states)
 
     # Set state_machine options (only if not merging, to preserve user config)
     dsl_state =
       if merge? do
-        # Don't override existing initial_states, default_initial_state
-        # Just set state_attribute and failure_states if not set
+        # Preserve the user's initial_states/default_initial_state, but still union
+        # the framework terminal states into extra_states/failure_states so the
+        # generated `:skipped`/`:failed`/`:cancelled` targets remain valid states.
+        # `maybe_set_option` would skip a default `[]`, leaving the state set short
+        # of the attribute's expanded `one_of`; union guarantees they agree.
         dsl_state
         |> maybe_set_option([:state_machine], :state_attribute, state_attr)
-        |> maybe_set_option([:state_machine], :failure_states, [:failed])
+        |> union_option([:state_machine], :extra_states, terminal_states())
+        |> union_option([:state_machine], :failure_states, failure_terminal_states())
       else
         # Determine initial state (first step)
         initial_state = List.first(workflow_steps).name
@@ -174,7 +178,12 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
           initial_state
         )
         |> Spark.Dsl.Transformer.set_option([:state_machine], :state_attribute, state_attr)
-        |> Spark.Dsl.Transformer.set_option([:state_machine], :failure_states, [:failed])
+        |> Spark.Dsl.Transformer.set_option([:state_machine], :extra_states, terminal_states())
+        |> Spark.Dsl.Transformer.set_option(
+          [:state_machine],
+          :failure_states,
+          failure_terminal_states()
+        )
       end
 
     # Generate and add transitions
@@ -204,7 +213,14 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
     end
   end
 
-  defp update_state_attribute_constraints(dsl_state, state_attr_name, all_states, merge?) do
+  # Union `values` into an existing list option (treating `nil`/`[]` as empty),
+  # so framework-required states are added without dropping user-declared ones.
+  defp union_option(dsl_state, path, key, values) do
+    existing = Spark.Dsl.Transformer.get_option(dsl_state, path, key) || []
+    Spark.Dsl.Transformer.set_option(dsl_state, path, key, Enum.uniq(existing ++ values))
+  end
+
+  defp update_state_attribute_constraints(dsl_state, state_attr_name, all_states) do
     # Get the state attribute from DSL entities
     attributes = Spark.Dsl.Extension.get_entities(dsl_state, [:attributes])
     state_attribute = Enum.find(attributes, &(&1.name == state_attr_name))
@@ -213,32 +229,31 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
       # Check if user already provided one_of constraint
       existing_one_of = Keyword.get(state_attribute.constraints || [], :one_of)
 
-      if existing_one_of && !merge? do
-        # User already defined one_of, don't override
-        dsl_state
-      else
-        # When merging, combine existing states with workflow states
-        final_states =
-          if merge? && existing_one_of do
-            Enum.sort(Enum.uniq(existing_one_of ++ all_states))
-          else
-            all_states
-          end
+      # Always union any user-declared `one_of` with the generated states so the
+      # attribute covers the framework terminal states (`:failed`, `:cancelled`,
+      # `:skipped`) the state machine declares via `extra_states`. Leaving a
+      # user-provided `one_of` untouched would let the attribute constraint drift
+      # below the state machine's state set and fail AshStateMachine's verifier.
+      final_states =
+        if existing_one_of do
+          Enum.sort(Enum.uniq(existing_one_of ++ all_states))
+        else
+          all_states
+        end
 
-        # Update the attribute's constraints to include one_of with all states
-        updated_constraints =
-          Keyword.put(state_attribute.constraints || [], :one_of, final_states)
+      # Update the attribute's constraints to include one_of with all states
+      updated_constraints =
+        Keyword.put(state_attribute.constraints || [], :one_of, final_states)
 
-        updated_attribute = %{state_attribute | constraints: updated_constraints}
+      updated_attribute = %{state_attribute | constraints: updated_constraints}
 
-        # Replace the attribute in the DSL state
-        Spark.Dsl.Transformer.replace_entity(
-          dsl_state,
-          [:attributes],
-          updated_attribute,
-          &(&1.name == state_attr_name)
-        )
-      end
+      # Replace the attribute in the DSL state
+      Spark.Dsl.Transformer.replace_entity(
+        dsl_state,
+        [:attributes],
+        updated_attribute,
+        &(&1.name == state_attr_name)
+      )
     else
       dsl_state
     end
@@ -264,7 +279,7 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
     valid_from_states =
       (regular_steps ++ parallel_steps)
       |> Enum.reject(fn step -> MapSet.member?(error_handler_names, step.name) end)
-      |> Enum.reject(fn step -> step.from != nil end)
+      |> Enum.reject(&uses_existing_state?/1)
       |> Enum.map(& &1.name)
 
     # Collect transitions from regular steps
@@ -318,13 +333,15 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
       parallel_steps
       |> Enum.flat_map(fn ps ->
         callback_action = :"handle_#{ps.name}_complete"
+        error_action = :"handle_#{ps.name}_error"
 
-        # Add on_complete transition (from parallel step to completion target)
-        if ps.on_complete do
-          [%{action: callback_action, from: [ps.name], to: [ps.on_complete]}]
-        else
-          []
-        end
+        [
+          if(ps.on_complete,
+            do: %{action: callback_action, from: [ps.name], to: [ps.on_complete]}
+          ),
+          if(ps.on_error, do: %{action: error_action, from: [ps.name], to: [ps.on_error]})
+        ]
+        |> Enum.reject(&is_nil/1)
       end)
 
     # Combine and group transitions by {action, to} to combine their from states.
@@ -364,6 +381,13 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
     # Parallel steps are a different entity type that coordinate branches
     match?(%AshJobs.Dsl.Entities.ParallelStep{}, entity)
   end
+
+  defp uses_existing_state?(%AshJobs.Dsl.Entities.ParallelStep{}), do: false
+  defp uses_existing_state?(step), do: step.from != nil
+
+  defp terminal_states, do: [:completed, :failed, :cancelled, :skipped]
+
+  defp failure_terminal_states, do: [:failed, :skipped]
 
   defp generate_state_callbacks(dsl_state, workflow_steps) do
     # Filter to regular steps that have any callbacks defined

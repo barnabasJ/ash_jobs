@@ -21,12 +21,18 @@ defmodule AshJobs.InfoTest do
             on_success :completed
             queue :inventory_processing
           end
+
+          step :handle_error do
+            action :handle_error
+            on_complete :failed
+          end
         end
 
         actions do
           defaults [:read]
           update :load_order, do: accept([])
           update :validate, do: accept([])
+          update :handle_error, do: accept([])
         end
       """)
 
@@ -39,7 +45,7 @@ defmodule AshJobs.InfoTest do
 
       assert workflow
       assert workflow.state_attribute == :state
-      assert length(workflow.steps) == 2
+      assert length(workflow.steps) == 3
     end
 
     test "raises if no workflow defined" do
@@ -78,9 +84,10 @@ defmodule AshJobs.InfoTest do
     test "returns list of workflow steps", %{resource: resource} do
       steps = AshJobs.Info.steps(resource)
 
-      assert length(steps) == 2
+      assert length(steps) == 3
       assert Enum.any?(steps, &(&1.name == :load_order))
       assert Enum.any?(steps, &(&1.name == :validate_inventory))
+      assert Enum.any?(steps, &(&1.name == :handle_error))
     end
   end
 
@@ -151,9 +158,7 @@ defmodule AshJobs.InfoTest do
     test "returns steps that transition to terminal states", %{resource: resource} do
       terminal_steps = AshJobs.Info.terminal_steps(resource)
 
-      # validate_inventory transitions to :completed
-      assert length(terminal_steps) == 1
-      assert List.first(terminal_steps).name == :validate_inventory
+      assert Enum.map(terminal_steps, & &1.name) == [:validate_inventory, :handle_error]
     end
   end
 end

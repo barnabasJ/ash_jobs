@@ -2,7 +2,8 @@ defmodule AshJobs.TestRepo do
   @moduledoc false
 
   use AshPostgres.Repo,
-    otp_app: :ash_jobs
+    otp_app: :ash_jobs,
+    warn_on_missing_ash_functions?: false
 
   def on_transaction_begin(_data) do
     :ok

@@ -179,7 +179,10 @@ defmodule AshJobs.Transformers.IntegrateOban do
     |> Enum.flat_map(fn parallel_step ->
       # For each branch, get update actions from branch resource
       Enum.flat_map(parallel_step.branches, fn branch ->
-        branch_actions = get_branch_update_actions(branch.resource)
+        branch_actions =
+          if AshJobs.Dsl.Entities.Branch.dynamic?(branch),
+            do: [],
+            else: get_branch_update_actions(branch.resource)
 
         Enum.map(branch_actions, fn action ->
           %{

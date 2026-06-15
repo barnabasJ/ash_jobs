@@ -406,8 +406,9 @@ defmodule AshJobs.Transformers.BuildWorkflowTest do
 
     test "handles missing action gracefully" do
       # This should be caught by validator, but transformer shouldn't crash
-      result =
-        compile_resource("""
+      assert_compile_error(
+        ~r/Missing required actions.*missing_action/s,
+        """
           workflow do
             step :process do
               action :missing_action
@@ -422,11 +423,8 @@ defmodule AshJobs.Transformers.BuildWorkflowTest do
               accept []
             end
           end
-        """)
-
-      # Should either compile successfully (with validator catching it later)
-      # or fail gracefully
-      assert match?({:ok, _}, result) or match?({:error, _}, result)
+        """
+      )
     end
 
     test "handles workflows with only error handler steps" do
@@ -528,17 +526,12 @@ defmodule AshJobs.Transformers.BuildWorkflowTest do
       # The default create action should also have the Change module
       actions = Ash.Resource.Info.actions(resource)
       create_actions = Enum.filter(actions, &(&1.type == :create))
+      assert [_ | _] = create_actions
 
       for action <- create_actions do
-        has_change =
-          Enum.any?(action.changes, fn
-            %{change: {AshJobs.Change, _}} -> true
-            _ -> false
-          end)
-
         # Note: This might not add Change to default actions, which is acceptable
         # Just verify it doesn't crash
-        assert true
+        assert is_list(action.changes)
       end
     end
   end

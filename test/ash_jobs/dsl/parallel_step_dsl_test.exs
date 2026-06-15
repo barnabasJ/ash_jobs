@@ -20,6 +20,7 @@ defmodule AshJobs.Dsl.ParallelStepDslTest do
 
     attributes do
       uuid_primary_key :id
+      attribute :parent_id, :uuid, public?: true
     end
 
     workflow do
@@ -31,7 +32,7 @@ defmodule AshJobs.Dsl.ParallelStepDslTest do
 
     actions do
       defaults [:read]
-      create :create
+      create :create, do: accept([:parent_id])
       update :do_work, do: accept([])
     end
   end
@@ -43,6 +44,7 @@ defmodule AshJobs.Dsl.ParallelStepDslTest do
 
     attributes do
       uuid_primary_key :id
+      attribute :parent_id, :uuid, public?: true
     end
 
     workflow do
@@ -54,7 +56,7 @@ defmodule AshJobs.Dsl.ParallelStepDslTest do
 
     actions do
       defaults [:read]
-      create :create
+      create :create, do: accept([:parent_id])
       update :do_work, do: accept([])
     end
   end
@@ -131,6 +133,7 @@ defmodule AshJobs.Dsl.ParallelStepDslTest do
   end
 
   describe "parallel_step DSL" do
+    @tag story: "US-SPS-01"
     test "can define workflow with parallel_step" do
       {:ok, resource} =
         compile_resource_with_parallel_step("""
@@ -156,9 +159,9 @@ defmodule AshJobs.Dsl.ParallelStepDslTest do
 
           actions do
             defaults [:read]
-            create :create
-            update :start_action
-            update :finalize_action
+            create :create, do: accept([])
+            update :start_action, do: accept([])
+            update :finalize_action, do: accept([])
           end
         """)
 
@@ -166,6 +169,7 @@ defmodule AshJobs.Dsl.ParallelStepDslTest do
       assert Code.ensure_loaded?(resource)
     end
 
+    @tag story: "US-SPS-01"
     test "Spark introspection returns parallel_step entities" do
       {:ok, resource} =
         compile_resource_with_parallel_step("""
@@ -186,8 +190,8 @@ defmodule AshJobs.Dsl.ParallelStepDslTest do
 
           actions do
             defaults [:read]
-            create :create
-            update :finalize_action
+            create :create, do: accept([])
+            update :finalize_action, do: accept([])
           end
         """)
 
@@ -211,6 +215,7 @@ defmodule AshJobs.Dsl.ParallelStepDslTest do
       assert :inventory in branch_names
     end
 
+    @tag story: "US-SPS-02"
     test "can define parallel_step with different completion strategies" do
       {:ok, resource} =
         compile_resource_with_parallel_step("""
@@ -231,8 +236,8 @@ defmodule AshJobs.Dsl.ParallelStepDslTest do
 
           actions do
             defaults [:read]
-            create :create
-            update :done_action
+            create :create, do: accept([])
+            update :done_action, do: accept([])
           end
         """)
 
@@ -243,6 +248,7 @@ defmodule AshJobs.Dsl.ParallelStepDslTest do
       assert parallel_step.completion_strategy == :any
     end
 
+    @tag story: "US-SPS-02"
     test "can define parallel_step with require_n completion strategy" do
       {:ok, resource} =
         compile_resource_with_parallel_step("""
@@ -264,8 +270,8 @@ defmodule AshJobs.Dsl.ParallelStepDslTest do
 
           actions do
             defaults [:read]
-            create :create
-            update :done_action
+            create :create, do: accept([])
+            update :done_action, do: accept([])
           end
         """)
 
@@ -277,6 +283,7 @@ defmodule AshJobs.Dsl.ParallelStepDslTest do
       assert length(parallel_step.branches) == 3
     end
 
+    @tag story: "US-SPS-03"
     test "can define parallel_step with on_error" do
       {:ok, resource} =
         compile_resource_with_parallel_step("""
@@ -302,9 +309,9 @@ defmodule AshJobs.Dsl.ParallelStepDslTest do
 
           actions do
             defaults [:read]
-            create :create
-            update :done_action
-            update :error_action
+            create :create, do: accept([])
+            update :done_action, do: accept([])
+            update :error_action, do: accept([])
           end
         """)
 

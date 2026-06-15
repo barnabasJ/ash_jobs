@@ -21,3 +21,6 @@ ash_jobs-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
+
+# lychee link-checker cache (US-DOC-05 offline runs)
+.lycheecache

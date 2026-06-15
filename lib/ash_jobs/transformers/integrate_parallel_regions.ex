@@ -104,8 +104,7 @@ defmodule AshJobs.Transformers.IntegrateParallelRegions do
             AshStateMachine,
             [:state_machine, :parallel_regions, :parallel_region],
             :region,
-            name: branch.name,
-            resource: branch.resource
+            region_opts(branch)
           )
 
         region
@@ -131,5 +130,17 @@ defmodule AshJobs.Transformers.IntegrateParallelRegions do
       [:state_machine, :parallel_regions],
       parallel_region
     )
+  end
+
+  defp region_opts(branch) do
+    if AshJobs.Dsl.Entities.Branch.dynamic?(branch) do
+      [
+        name: branch.name,
+        relationship: AshJobs.Dsl.Entities.Branch.relationship_name(branch),
+        needs: branch.needs
+      ]
+    else
+      [name: branch.name, resource: branch.resource]
+    end
   end
 end

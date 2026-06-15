@@ -116,6 +116,8 @@ defmodule AshJobs.Transformers.IntegrateObanTest do
               trigger :custom_trigger do
                 action :load_order
                 where expr(state == :custom)
+                worker_module_name TestResource.CustomTriggerWorker
+                scheduler_module_name TestResource.CustomTriggerScheduler
               end
             end
           end
@@ -266,11 +268,17 @@ defmodule AshJobs.Transformers.IntegrateObanTest do
               on_success :completed
               on_error :handle_error
             end
+
+            step :handle_error do
+              action :handle_error
+              on_complete :failed
+            end
           end
 
           actions do
             defaults [:read]
             update :load_order, do: accept([])
+            update :handle_error, do: accept([])
           end
         """)
 

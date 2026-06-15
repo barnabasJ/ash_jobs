@@ -10,8 +10,13 @@ defmodule AshJobs.MixProject do
       start_permanent: Mix.env() == :prod,
       consolidate_protocols: Mix.env() != :test,
       deps: deps(),
-      aliases: aliases(),
-      preferred_cli_env: [
+      aliases: aliases()
+    ]
+  end
+
+  def cli do
+    [
+      preferred_envs: [
         "test.setup": :test,
         "test.reset": :test
       ]

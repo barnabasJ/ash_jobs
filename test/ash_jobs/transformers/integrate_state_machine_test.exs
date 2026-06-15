@@ -54,9 +54,6 @@ defmodule AshJobs.Transformers.IntegrateStateMachineTest do
     rescue
       error ->
         {:error, error}
-    catch
-      :error, reason ->
-        {:error, reason}
     end
   end
 

@@ -29,18 +29,29 @@ defmodule AshJobs.Dsl.Entities.BranchTest do
 
       assert Keyword.has_key?(schema, :name)
       assert Keyword.has_key?(schema, :resource)
+      assert Keyword.has_key?(schema, :relationship)
+      assert Keyword.has_key?(schema, :needs)
 
       assert schema[:name][:type] == :atom
       assert schema[:name][:required] == true
 
+      # `resource` is optional: relationship-sourced (dynamic) branches declare a
+      # `relationship` instead of a fixed resource (US-RSB-03).
       assert schema[:resource][:type] == :atom
-      assert schema[:resource][:required] == true
+      assert schema[:resource][:required] == false
+
+      assert schema[:relationship][:type] == :atom
+      assert schema[:relationship][:required] == false
+
+      assert schema[:needs][:type] == :atom
+      assert schema[:needs][:required] == false
     end
   end
 
   describe "args/0" do
-    test "returns [:name, :resource]" do
-      assert Branch.args() == [:name, :resource]
+    test "returns [:name, {:optional, :resource}]" do
+      # `resource` is an optional positional arg so dynamic branches can omit it.
+      assert Branch.args() == [:name, {:optional, :resource}]
     end
   end
 

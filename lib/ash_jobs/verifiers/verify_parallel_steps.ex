@@ -18,7 +18,7 @@ defmodule AshJobs.Verifiers.VerifyParallelSteps do
 
   use Spark.Dsl.Verifier
 
-  @terminal_states [:completed, :failed, :cancelled]
+  @terminal_states [:completed, :failed, :cancelled, :skipped]
 
   def verify(dsl_state) do
     workflow_entities = Spark.Dsl.Extension.get_entities(dsl_state, [:workflow])
@@ -32,7 +32,8 @@ defmodule AshJobs.Verifiers.VerifyParallelSteps do
 
       valid_targets = MapSet.union(all_step_names, MapSet.new(@terminal_states))
 
-      with :ok <- validate_branch_uniqueness(parallel_steps),
+      with :ok <- validate_branch_sources(parallel_steps),
+           :ok <- validate_branch_uniqueness(parallel_steps),
            :ok <- validate_target_references(parallel_steps, valid_targets),
            :ok <- validate_completion_strategies(parallel_steps) do
         :ok
@@ -44,6 +45,36 @@ defmodule AshJobs.Verifiers.VerifyParallelSteps do
 
   defp is_parallel_step?(entity) do
     match?(%AshJobs.Dsl.Entities.ParallelStep{}, entity)
+  end
+
+  defp validate_branch_sources(parallel_steps) do
+    invalid =
+      parallel_steps
+      |> Enum.flat_map(fn ps ->
+        ps.branches
+        |> Enum.filter(fn branch ->
+          static? = not is_nil(branch.resource)
+          dynamic? = not is_nil(branch.relationship)
+
+          static? == dynamic?
+        end)
+        |> Enum.map(&{ps.name, &1.name})
+      end)
+
+    if Enum.empty?(invalid) do
+      :ok
+    else
+      messages =
+        Enum.map(invalid, fn {ps_name, branch_name} ->
+          "parallel_step :#{ps_name} branch :#{branch_name} must specify exactly one of resource or relationship"
+        end)
+
+      {:error,
+       Spark.Error.DslError.exception(
+         module: __MODULE__,
+         message: Enum.join(messages, "\n")
+       )}
+    end
   end
 
   defp validate_branch_uniqueness(parallel_steps) do
@@ -139,15 +170,22 @@ defmodule AshJobs.Verifiers.VerifyParallelSteps do
       parallel_steps
       |> Enum.filter(fn ps ->
         case ps.completion_strategy do
-          :all -> false
-          :any -> false
-          {:require_n, n} when is_integer(n) and n > 0 -> n > length(ps.branches)
-          _ -> true
+          :all ->
+            false
+
+          :any ->
+            false
+
+          {:require_n, n} when is_integer(n) and n > 0 ->
+            static_require_n_exceeds_branch_count?(ps, n)
+
+          _ ->
+            true
         end
       end)
       |> Enum.map(fn ps ->
         case ps.completion_strategy do
-          {:require_n, n} when n > length(ps.branches) ->
+          {:require_n, n} ->
             {ps.name, ps.completion_strategy,
              "require_n count (#{n}) exceeds branch count (#{length(ps.branches)})"}
 
@@ -180,4 +218,10 @@ defmodule AshJobs.Verifiers.VerifyParallelSteps do
        )}
     end
   end
+
+  defp static_require_n_exceeds_branch_count?(parallel_step, n) do
+    Enum.all?(parallel_step.branches, &static_branch?/1) and n > length(parallel_step.branches)
+  end
+
+  defp static_branch?(branch), do: not AshJobs.Dsl.Entities.Branch.dynamic?(branch)
 end

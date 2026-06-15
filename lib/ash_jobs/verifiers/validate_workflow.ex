@@ -26,7 +26,7 @@ defmodule AshJobs.Verifiers.ValidateWorkflow do
 
   use Spark.Dsl.Verifier
 
-  @terminal_states [:completed, :failed, :cancelled]
+  @terminal_states [:completed, :failed, :cancelled, :skipped]
 
   def verify(dsl_state) do
     workflow = Spark.Dsl.Extension.get_entities(dsl_state, [:workflow])

@@ -135,6 +135,7 @@ defmodule AshJobs.Dsl.ParallelStepDslTest do
   describe "parallel_step DSL" do
     @tag story: "US-SPS-01"
     test "can define workflow with parallel_step" do
+      # Given an author declares a workflow with a fixed-resource parallel_step
       {:ok, resource} =
         compile_resource_with_parallel_step("""
           workflow do
@@ -165,12 +166,14 @@ defmodule AshJobs.Dsl.ParallelStepDslTest do
           end
         """)
 
-      # Verify the module compiled successfully
+      # When the resource compiles with AshJobs, AshStateMachine, and AshOban
+      # Then the resource loads successfully
       assert Code.ensure_loaded?(resource)
     end
 
     @tag story: "US-SPS-01"
     test "Spark introspection returns parallel_step entities" do
+      # Given an author declares a parallel_step with two fixed-resource branches
       {:ok, resource} =
         compile_resource_with_parallel_step("""
           workflow do
@@ -195,12 +198,12 @@ defmodule AshJobs.Dsl.ParallelStepDslTest do
           end
         """)
 
-      # Get all workflow entities
+      # When the resource compiles and we introspect its workflow entities
       entities = Spark.Dsl.Extension.get_entities(resource, [:workflow])
-
-      # Find parallel_step entities
       parallel_steps = Enum.filter(entities, &match?(%ParallelStep{}, &1))
 
+      # Then introspection returns the ParallelStep with its name, on_complete,
+      # completion strategy, and declared branch list intact
       assert length(parallel_steps) == 1
 
       [parallel_step] = parallel_steps
@@ -209,7 +212,6 @@ defmodule AshJobs.Dsl.ParallelStepDslTest do
       assert parallel_step.on_complete == :finalize
       assert length(parallel_step.branches) == 2
 
-      # Verify branch details
       branch_names = Enum.map(parallel_step.branches, & &1.name)
       assert :payment in branch_names
       assert :inventory in branch_names
@@ -217,6 +219,7 @@ defmodule AshJobs.Dsl.ParallelStepDslTest do
 
     @tag story: "US-SPS-02"
     test "can define parallel_step with different completion strategies" do
+      # Given an author declares a parallel_step with the :any completion strategy
       {:ok, resource} =
         compile_resource_with_parallel_step("""
           workflow do
@@ -241,15 +244,18 @@ defmodule AshJobs.Dsl.ParallelStepDslTest do
           end
         """)
 
+      # When the workflow DSL compiles and we introspect it
       entities = Spark.Dsl.Extension.get_entities(resource, [:workflow])
       parallel_steps = Enum.filter(entities, &match?(%ParallelStep{}, &1))
 
+      # Then the ParallelStep retains the chosen :any completion strategy
       [parallel_step] = parallel_steps
       assert parallel_step.completion_strategy == :any
     end
 
     @tag story: "US-SPS-02"
     test "can define parallel_step with require_n completion strategy" do
+      # Given an author declares a parallel_step with {:require_n, 2} over three branches
       {:ok, resource} =
         compile_resource_with_parallel_step("""
           workflow do
@@ -275,9 +281,11 @@ defmodule AshJobs.Dsl.ParallelStepDslTest do
           end
         """)
 
+      # When the workflow DSL compiles and we introspect it
       entities = Spark.Dsl.Extension.get_entities(resource, [:workflow])
       parallel_steps = Enum.filter(entities, &match?(%ParallelStep{}, &1))
 
+      # Then the ParallelStep retains {:require_n, 2} bounded by its 3 static branches
       [parallel_step] = parallel_steps
       assert parallel_step.completion_strategy == {:require_n, 2}
       assert length(parallel_step.branches) == 3
@@ -285,6 +293,7 @@ defmodule AshJobs.Dsl.ParallelStepDslTest do
 
     @tag story: "US-SPS-03"
     test "can define parallel_step with on_error" do
+      # Given an author declares a parallel_step with on_error :handle_error
       {:ok, resource} =
         compile_resource_with_parallel_step("""
           workflow do
@@ -315,9 +324,12 @@ defmodule AshJobs.Dsl.ParallelStepDslTest do
           end
         """)
 
+      # When the workflow DSL compiles (state-machine integration runs without
+      # crashing on the :from-less parallel step) and we introspect it
       entities = Spark.Dsl.Extension.get_entities(resource, [:workflow])
       parallel_steps = Enum.filter(entities, &match?(%ParallelStep{}, &1))
 
+      # Then the ParallelStep retains its on_error routing target
       [parallel_step] = parallel_steps
       assert parallel_step.on_error == :handle_error
     end

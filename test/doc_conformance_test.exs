@@ -44,53 +44,63 @@ defmodule AshJobs.DocConformanceTest do
   @tag story: "US-DOC-01"
   test "an untagged test is counted, and a new untagged test grows the count past the baseline",
        %{dir: dir} do
-    # The fixtures hold exactly one `test` with no `@tag story:`.
+    # Given the suite with the SuiteCheck gate, the fixtures hold exactly one
+    # `test` carrying no `@tag story:`.
     untagged = Coverage.untagged_tests([@fixtures])
     assert [{@fixtures, "untagged"}] = untagged
 
-    # That count baselines clean...
+    # When that lone untagged test is baselined, the count holds clean at 1.
     baseline = Path.join(dir, "untagged.txt")
     assert {:initialized, 1} = Ratchet.check(length(untagged), baseline)
     assert :ok = Ratchet.check(1, baseline)
 
-    # ...and adding a new untagged test (2 > 1) is a ratchet regression that
-    # fails the build.
+    # Then adding a new untagged test (2 > 1) grows the count past the baseline
+    # and is a ratchet regression that fails the build.
     assert {:regressed, 1, 2} = Ratchet.check(2, baseline)
   end
 
   @tag story: "US-DOC-02"
   test "a story with no referencing test is counted, and a new untested story fails the build",
        %{dir: dir} do
+    # Given two story files, where the fixtures tag US-DOCFIX-01 (not -02).
     write(dir, "US-DOCFIX-01-tagged.md", "Given\nWhen\nThen\n")
     write(dir, "US-DOCFIX-02-orphan.md", "Given\nWhen\nThen\n")
 
-    # The fixtures tag US-DOCFIX-01 (not -02), so -02 is the only untested story.
+    # When the suite subtracts the referenced ids, -02 is the only story with no
+    # referencing test.
     untested = Coverage.untested_stories([Path.join(dir, "*.md")], [@fixtures])
     assert ["US-DOCFIX-02"] = untested
 
+    # Then that single untested story baselines clean at 1.
     baseline = Path.join(dir, "untested.txt")
     assert {:initialized, 1} = Ratchet.check(length(untested), baseline)
 
-    # A second untested story (2 > 1) is a regression that fails the build.
+    # Then adding a second untested story (2 > 1) grows the count past the
+    # baseline and is a regression that fails the build.
     assert {:regressed, 1, 2} = Ratchet.check(2, baseline)
   end
 
   @tag story: "US-DOC-03"
   test "a @tag story: naming a non-existent story is reported as undocumented (fails immediately)",
        %{dir: dir} do
-    # Only US-DOCFIX-01 is declared; the fixtures also tag US-DOCFIX-99.
+    # Given only US-DOCFIX-01 is declared as a story file, while the fixtures
+    # carry a `@tag story:` naming US-DOCFIX-99, which has no matching file.
     write(dir, "US-DOCFIX-01-tagged.md", "Given\nWhen\nThen\n")
 
+    # When the suite collects tagged ids and checks each against the docs glob.
     undocumented = Coverage.undocumented_tags([Path.join(dir, "*.md")], [@fixtures])
 
-    # The SuiteCheck asserts this list is empty (`assert undocumented == []`),
-    # so a non-empty result fails the build on first appearance — not ratcheted.
+    # Then the non-existent tag is reported as undocumented (the SuiteCheck
+    # asserts this list is empty, so it fails immediately — not ratcheted),
+    # while the real story id is not.
     assert "US-DOCFIX-99" in undocumented
     refute "US-DOCFIX-01" in undocumented
   end
 
   @tag story: "US-DOC-04"
   test "a story file with no Given/When/Then is reported incomplete", %{dir: dir} do
+    # Given two story files: one spelling out a full Given/When/Then, and one
+    # hollow stub with just a title and no scenario outline.
     complete =
       write(
         dir,
@@ -100,14 +110,19 @@ defmodule AshJobs.DocConformanceTest do
 
     stub = write(dir, "US-DOCFIX-02-stub.md", "# US-DOCFIX-02\n\njust a title, no outline\n")
 
+    # When the suite parses each story file for a Given/When/Then.
     incomplete = Coverage.incomplete_stories([Path.join(dir, "*.md")])
 
+    # Then the stub is reported incomplete (failing the gate) while the
+    # complete story is not.
     assert stub in incomplete
     refute complete in incomplete
   end
 
   @tag story: "US-DOC-05"
   test "lychee offline flags a broken internal link and passes a resolving one", %{dir: dir} do
+    # Given a docs tree with internal links — one relative link to an existing
+    # file, and one to a missing file — and lychee available to scan it.
     lychee = System.find_executable("lychee")
     assert lychee, "lychee must be installed (mise-managed) to run the offline link check"
 
@@ -115,6 +130,7 @@ defmodule AshJobs.DocConformanceTest do
     ok_doc = write(dir, "resolves.md", "[target](./target.md)\n")
     broken_doc = write(dir, "broken.md", "[missing](./missing.md)\n")
 
+    # When lychee runs in offline mode over each doc.
     run = fn doc ->
       {_out, status} =
         System.cmd(lychee, ["--offline", "--no-progress", doc], stderr_to_stdout: true)
@@ -122,10 +138,10 @@ defmodule AshJobs.DocConformanceTest do
       status
     end
 
-    # A relative link to an existing file resolves — lychee exits 0.
+    # Then the link to an existing file resolves — lychee exits 0.
     assert run.(ok_doc) == 0
 
-    # A relative link to a missing file is a broken internal link — lychee exits
+    # Then the link to a missing file is a broken internal link — lychee exits
     # non-zero, which fails the Docs links CI check.
     assert run.(broken_doc) != 0
   end

@@ -101,9 +101,11 @@ defmodule AshJobs.Integration.ComprehensiveWorkflowTest do
 
     @tag story: "US-WEH-02"
     test "error at start step routes to handle_start_error" do
+      # Given a running workflow with a configured on_error handler for the active (start) step
       {:ok, job} = BranchingWorkflow.create(%{name: "branch-002", force_error_at: "start"})
       assert job.state == :start
 
+      # When the start step fails during Oban-triggered execution (failure log captured, not leaked)
       {error, log} =
         with_log(fn ->
           try do
@@ -120,16 +122,20 @@ defmodule AshJobs.Integration.ComprehensiveWorkflowTest do
       assert log =~ "Forced error at start"
       assert error != nil
 
+      # When the workflow is routed through the configured handler
       {:ok, job} = BranchingWorkflow.notify_start_error(job, %{error: error})
 
+      # Then it lands in :failed with a non-empty error message explaining the failed step
       assert job.state == :failed
       assert job.error_message != nil
     end
 
     @tag story: "US-WEH-02"
     test "error at step_one routes to handle_step_one_error" do
+      # Given a running workflow with a configured on_error handler for a later (step_one) step
       {:ok, job} = BranchingWorkflow.create(%{name: "branch-003", force_error_at: "step_one"})
 
+      # When execution advances to step_one and that step fails (failure log captured)
       {error, log} =
         with_log(fn ->
           try do
@@ -148,17 +154,21 @@ defmodule AshJobs.Integration.ComprehensiveWorkflowTest do
       assert log =~ "Forced error at step_one"
       assert error != nil
 
+      # When the workflow is routed through step_one's configured handler
       job = TestRepo.get!(BranchingWorkflow, job.id)
       {:ok, job} = BranchingWorkflow.notify_step_one_error(job, %{error: error})
 
+      # Then it lands in :failed with a non-empty error message
       assert job.state == :failed
       assert job.error_message != nil
     end
 
     @tag story: "US-WEH-02"
     test "error at step_two routes to handle_step_two_error" do
+      # Given a running workflow with a configured on_error handler for a later (step_two) step
       {:ok, job} = BranchingWorkflow.create(%{name: "branch-004", force_error_at: "step_two"})
 
+      # When execution advances through start and step_one to step_two, where it fails (log captured)
       {error, log} =
         with_log(fn ->
           try do
@@ -179,19 +189,24 @@ defmodule AshJobs.Integration.ComprehensiveWorkflowTest do
       assert log =~ "Forced error at step_two"
       assert error != nil
 
+      # When the workflow is routed through step_two's configured handler
       job = TestRepo.get!(BranchingWorkflow, job.id)
       {:ok, job} = BranchingWorkflow.notify_step_two_error(job, %{error: error})
 
+      # Then it lands in :failed with a non-empty error message
       assert job.state == :failed
       assert job.error_message != nil
     end
 
     @tag story: "US-WEH-01"
     test "error handlers can be called directly" do
+      # Given a workflow in the start state that owns the start error handler
       {:ok, job} = BranchingWorkflow.create(%{name: "branch-005", force_error_at: nil})
 
+      # When the handler is called from that valid source state with a map payload carrying :message
       {:ok, job} = BranchingWorkflow.notify_start_error(job, %{error: %{message: "Manual error"}})
 
+      # Then the workflow transitions to :failed with the extracted message persisted
       assert job.state == :failed
       assert job.error_message == "Manual error"
     end
@@ -411,27 +426,36 @@ defmodule AshJobs.Integration.ComprehensiveWorkflowTest do
   describe "error edge cases" do
     @tag story: "US-WEH-01"
     test "error handler actions preserve error payloads from valid source states" do
+      # Given a workflow in the start state (owner of the start error handler)
       {:ok, start_job} = BranchingWorkflow.create(%{name: "edge-start", force_error_at: nil})
 
+      # When the start handler is called with a binary payload
+      # Then the binary is persisted verbatim as the error message
       {:ok, start_job} = BranchingWorkflow.notify_start_error(start_job, %{error: "string error"})
       assert start_job.error_message == "string error"
 
+      # Given a workflow advanced to the step_one state (owner of the step_one handler)
       {:ok, step_one_job} =
         BranchingWorkflow.create(%{name: "edge-step-one", force_error_at: nil})
 
       {:ok, step_one_job} = BranchingWorkflow.initialize(step_one_job)
 
+      # When the step_one handler is called with a map payload carrying :message
+      # Then the :message value is extracted and persisted
       {:ok, step_one_job} =
         BranchingWorkflow.notify_step_one_error(step_one_job, %{error: %{message: "map error"}})
 
       assert step_one_job.error_message == "map error"
 
+      # Given a workflow advanced to the step_two state (owner of the step_two handler)
       {:ok, step_two_job} =
         BranchingWorkflow.create(%{name: "edge-step-two", force_error_at: nil})
 
       {:ok, step_two_job} = BranchingWorkflow.initialize(step_two_job)
       {:ok, step_two_job} = BranchingWorkflow.process_one(step_two_job)
 
+      # When the step_two handler is called with a nil payload
+      # Then it falls back to the handler's default message
       {:ok, step_two_job} = BranchingWorkflow.notify_step_two_error(step_two_job, %{error: nil})
       assert step_two_job.error_message == "Error at step_two"
     end

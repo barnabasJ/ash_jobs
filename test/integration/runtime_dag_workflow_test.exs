@@ -267,6 +267,7 @@ defmodule AshJobs.Integration.RuntimeDagWorkflowTest do
 
   @tag story: "US-FP-01"
   test "failed row skips direct dependents without running them" do
+    # Given a dependent that needs `need`
     parent = run()
 
     {need, dependent} =
@@ -279,15 +280,19 @@ defmodule AshJobs.Integration.RuntimeDagWorkflowTest do
         {need, dependent}
       end)
 
+    # When `need` fails
     DagJob.mark_failed!(need)
-    dependent = reload(dependent)
 
+    # Then the dependent is skipped — transitioned to a terminal `:skipped`
+    # without ever running its workflow step
+    dependent = reload(dependent)
     assert dependent.state == :skipped
     assert dependent.run_count == 0
   end
 
   @tag story: "US-FP-02"
   test "skip propagation follows transitive dependents" do
+    # Given a chain root <- middle <- leaf wired by needs
     parent = run()
 
     {root, middle, leaf} =
@@ -298,8 +303,10 @@ defmodule AshJobs.Integration.RuntimeDagWorkflowTest do
         {root, middle, leaf}
       end)
 
+    # When the chain's root fails
     DagJob.mark_failed!(root)
 
+    # Then the skip propagates transitively down the whole chain
     assert reload(middle).state == :skipped
     assert reload(leaf).state == :skipped
   end

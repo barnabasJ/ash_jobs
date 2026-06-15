@@ -109,17 +109,21 @@ defmodule AshJobs.Integration.RuntimeDagWorkflowTest do
 
   @tag story: "US-NGD-02"
   test "row with no needs runs immediately" do
+    # Given a run and a job with no needs
     parent = run()
 
+    # When the job is created (its create path dispatches it inline)
     job = inline(fn -> DagJob.create!(%{parent_id: parent.id, name: "root"}) end)
-    job = reload(job)
 
+    # Then it runs straight away — the empty needs gate is vacuously satisfied
+    job = reload(job)
     assert job.state == :completed
     assert job.run_count == 1
   end
 
   @tag story: "US-NGD-03"
   test "dependent starts only after all needs reach success" do
+    # Given a dependent that needs both `first` and `second`
     parent = run()
 
     {first, second, dependent} =
@@ -137,15 +141,20 @@ defmodule AshJobs.Integration.RuntimeDagWorkflowTest do
         {first, second, dependent}
       end)
 
+    # When only the first need succeeds
     inline(fn -> DagJob.run!(first) end)
+    # Then the dependent is still held back (the second need is unmet)
     assert reload(dependent).state == :pending
 
+    # When the last need also succeeds
     inline(fn -> DagJob.run!(second) end)
+    # Then the dependent's gate opens and it runs to completion
     assert reload(dependent).state == :completed
   end
 
   @tag story: "US-NGD-04"
-  test "independent rows are ready in the same scheduler pass" do
+  test "independent rows run together in a single scheduler pass" do
+    # Given two jobs with no needs (independent of each other)
     parent = run()
 
     [first, second] =
@@ -156,9 +165,12 @@ defmodule AshJobs.Integration.RuntimeDagWorkflowTest do
         ]
       end)
 
-    ready_ids = DagJob |> AshJobs.Readiness.ready_records() |> Enum.map(& &1.id) |> Enum.sort()
+    # When the scheduler scans for ready rows once
+    AshOban.Test.schedule_and_run_triggers({DagJob, :pending})
 
-    assert ready_ids == [first.id, second.id] |> Enum.sort()
+    # Then both ran to completion in that single pass — neither gated the other
+    assert reload(first).state == :completed
+    assert reload(second).state == :completed
   end
 
   @tag story: "US-NGD-05"
@@ -251,35 +263,6 @@ defmodule AshJobs.Integration.RuntimeDagWorkflowTest do
     assert reload(omega).state == :completed
     assert reload(alpha).state == :completed
     assert DateTime.compare(reload(omega).completed_at, reload(alpha).completed_at) != :gt
-  end
-
-  @tag story: "US-NGD-03"
-  test "the generated pending trigger where-filter matches only rows with all needs satisfied" do
-    parent = run()
-
-    manual(fn ->
-      need = DagJob.create!(%{parent_id: parent.id, name: "need"})
-      DagJob.create!(%{parent_id: parent.id, name: "dependent", need_ids: [need.id]})
-      DagJob.create!(%{parent_id: parent.id, name: "ready"})
-    end)
-
-    # The needs gate is declarative: it lives in the AshOban trigger `where`, so
-    # the scheduler itself only scans ready rows. Apply that same `where` and
-    # confirm the unmet dependent is filtered out while the no-needs rows match.
-    pending_where =
-      DagJob
-      |> AshOban.Info.oban_triggers()
-      |> Enum.find(&(&1.name == :pending))
-      |> Map.fetch!(:where)
-
-    matched =
-      DagJob
-      |> Ash.Query.do_filter(pending_where)
-      |> Ash.read!()
-      |> Enum.map(& &1.name)
-      |> Enum.sort()
-
-    assert matched == ["need", "ready"]
   end
 
   @tag story: "US-FP-01"

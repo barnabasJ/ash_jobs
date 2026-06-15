@@ -46,6 +46,12 @@ defmodule AshJobs.MixProject do
       {:mimic, "~> 1.11", only: :test},
       {:stream_data, "~> 1.2"},
 
+      # Documentation conformance — story<->test traceability gate (shared
+      # engine, sibling path dep; resolves in the parent checkout, not in a
+      # standalone ash_jobs CI). See
+      # documentation/user/qa-engineer/doc-conformance/.
+      {:story_traceability, path: "../story_traceability", only: :test},
+
       # Integration Testing (database layer for tests)
       {:ash_postgres, "~> 2.4", only: :test}
     ]

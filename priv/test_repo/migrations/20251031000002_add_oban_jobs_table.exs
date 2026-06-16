@@ -2,7 +2,7 @@ defmodule AshJobs.TestRepo.Migrations.AddObanJobsTable do
   use Ecto.Migration
 
   def up do
-    Oban.Migration.up(version: 12)
+    Oban.Migration.up(version: 14)
   end
 
   def down do

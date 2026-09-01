@@ -180,7 +180,8 @@ defmodule AshJobs.Transformers.IntegrateOban do
         state_attr,
         resource_module,
         existing_names,
-        read_action
+        read_action,
+        Spark.Dsl.Transformer.get_option(dsl_state, [:state_machine], :initial_states) || []
       )
 
     # Combine all triggers
@@ -242,11 +243,14 @@ defmodule AshJobs.Transformers.IntegrateOban do
          state_attr,
          resource_module,
          existing_names,
-         read_action
+         read_action,
+         initial_states
        ) do
     parallel_steps
     |> Enum.filter(&dynamic_parallel_step?/1)
-    |> Enum.flat_map(&completion_triggers_for(&1, state_attr, resource_module, read_action))
+    |> Enum.flat_map(
+      &completion_triggers_for(&1, state_attr, resource_module, read_action, initial_states)
+    )
     |> Enum.reject(fn trigger -> MapSet.member?(existing_names, trigger.name) end)
   end
 
@@ -258,7 +262,13 @@ defmodule AshJobs.Transformers.IntegrateOban do
   # terminal states, so it is expressible as a `where`: complete once no child is
   # outside a success terminal, errored once any child reached a failure terminal.
   # `:any` / `{:require_n, n}` need a runtime count and are not yet driven here.
-  defp completion_triggers_for(%{completion_strategy: :all} = ps, state_attr, resource_module, ra) do
+  defp completion_triggers_for(
+         %{completion_strategy: :all} = ps,
+         state_attr,
+         resource_module,
+         ra,
+         initial_states
+       ) do
     branch = Enum.find(ps.branches, &AshJobs.Dsl.Entities.Branch.dynamic?/1)
     relationship = AshJobs.Dsl.Entities.Branch.relationship_name(branch)
     region_state = ps.name
@@ -276,7 +286,11 @@ defmodule AshJobs.Transformers.IntegrateOban do
       error =
         build_completion_trigger(
           :"handle_#{ps.name}_error",
-          any_failed_where(state_attr, region_state, relationship),
+          any_failed_where(
+            state_attr,
+            Enum.uniq([region_state | initial_states]),
+            relationship
+          ),
           ps,
           resource_module,
           ra
@@ -288,7 +302,7 @@ defmodule AshJobs.Transformers.IntegrateOban do
     end
   end
 
-  defp completion_triggers_for(_ps, _state_attr, _resource_module, _ra), do: []
+  defp completion_triggers_for(_ps, _state_attr, _resource_module, _ra, _initial_states), do: []
 
   # parent in the region state AND every child row is in a success terminal
   defp all_succeeded_where(state_attr, region_state, relationship) do
@@ -300,12 +314,12 @@ defmodule AshJobs.Transformers.IntegrateOban do
     )
   end
 
-  # parent in the region state AND at least one child row reached a failure terminal
-  defp any_failed_where(state_attr, region_state, relationship) do
+  # parent in any declared entry state AND at least one child row reached a failure terminal
+  defp any_failed_where(state_attr, parent_states, relationship) do
     failure = @child_failure_states
 
     expr(
-      ^ref(state_attr) == ^region_state and
+      ^ref(state_attr) in ^parent_states and
         exists(^[relationship], ^ref(:state) in ^failure)
     )
   end

@@ -486,7 +486,7 @@ defmodule AshJobs.Integration.RuntimeDagWorkflowTest do
   end
 
   @tag story: "US-RSB-06"
-  test "a relationship-sourced parallel step finalizes its parent when its branches complete" do
+  test "a relationship-sourced parallel step finalizes its parent when branches complete or fail" do
     # Given a run whose `:run_jobs` region fans out over two independent jobs
     parent = run()
 
@@ -508,5 +508,23 @@ defmodule AshJobs.Integration.RuntimeDagWorkflowTest do
     # Then the parent finalizes to `:completed` on its own — no manual
     # `check_parallel_completion` call needed
     assert reload(parent).state == :completed
+
+    # Given a dynamic-region parent parked in its declared :pending initial state
+    parent = DagRun.create_pending!(%{name: "pending-parent"})
+    failed = manual(fn -> DagJob.create!(%{parent_id: parent.id, name: "failed"}) end)
+    DagJob.mark_failed!(failed)
+
+    assert reload(parent).state == :pending
+    assert reload(failed).state == :failed
+
+    # When the generated parent failure trigger scans the terminal child rows
+    assert %{success: success} =
+             AshOban.Test.schedule_and_run_triggers({DagRun, :handle_run_jobs_error})
+
+    assert success >= 1
+
+    # Then the parent converges to its authored failure terminal instead of
+    # remaining pending forever.
+    assert reload(parent).state == :failed
   end
 end

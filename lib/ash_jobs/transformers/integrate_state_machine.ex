@@ -282,6 +282,9 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
       |> Enum.reject(&uses_existing_state?/1)
       |> Enum.map(& &1.name)
 
+    initial_states =
+      Spark.Dsl.Transformer.get_option(dsl_state, [:state_machine], :initial_states) || []
+
     # Collect transitions from regular steps
     regular_transitions =
       regular_steps
@@ -339,7 +342,13 @@ defmodule AshJobs.Transformers.IntegrateStateMachine do
           if(ps.on_complete,
             do: %{action: callback_action, from: [ps.name], to: [ps.on_complete]}
           ),
-          if(ps.on_error, do: %{action: error_action, from: [ps.name], to: [ps.on_error]})
+          if(ps.on_error,
+            do: %{
+              action: error_action,
+              from: Enum.uniq([ps.name | initial_states]),
+              to: [ps.on_error]
+            }
+          )
         ]
         |> Enum.reject(&is_nil/1)
       end)

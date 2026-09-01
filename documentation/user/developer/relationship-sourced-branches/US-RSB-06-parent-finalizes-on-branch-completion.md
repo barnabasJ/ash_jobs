@@ -20,9 +20,9 @@ And if any branch row reaches a failure terminal state, the parent is routed to 
   (`handle_<region>_complete`) or `on_error` (`handle_<region>_error`) state —
   so a real run drives the parent to a terminal state without a manual
   completion check.
-- The generated `handle_<region>_complete` / `_error` actions run non-atomically
-  (state-machine transitions validate the prior state, which an atomic bulk
-  update can't express), so an AshOban trigger can execute them.
+- The generated error trigger and transition include every declared parent
+  initial state, so a child failure can reconcile a parent before it enters the
+  dynamic region state.
 
 ## Notes
 
@@ -30,7 +30,7 @@ And if any branch row reaches a failure terminal state, the parent is routed to 
   `packages/ash_jobs/lib/ash_jobs/transformers/integrate_oban.ex`
   (`generate_dynamic_completion_triggers`),
   `packages/ash_jobs/lib/ash_jobs/transformers/integrate_state_machine.ex`
-  (`require_atomic?: false` on generated transitions).
+  (generated error-transition source states).
 - Static regions are driven instead through the parent's generated
   `DelegateToRegion` wrapper actions (`GenerateRegionActions`); dynamic regions
   skip those, which is why they need this completion trigger.

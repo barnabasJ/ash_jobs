@@ -22,6 +22,12 @@ defmodule AshJobs.TestResources.DagRun do
     end
   end
 
+  state_machine do
+    initial_states([:run_jobs, :pending])
+    default_initial_state(:run_jobs)
+    extra_states([:pending])
+  end
+
   relationships do
     has_many(:jobs, AshJobs.TestResources.DagJob,
       destination_attribute: :parent_id,
@@ -38,6 +44,7 @@ defmodule AshJobs.TestResources.DagRun do
       default(:run_jobs)
       allow_nil?(false)
       public?(true)
+      constraints(one_of: [:run_jobs, :completed, :failed, :cancelled, :skipped, :pending])
     end
 
     create_timestamp(:inserted_at)
@@ -51,6 +58,11 @@ defmodule AshJobs.TestResources.DagRun do
       accept([:name])
     end
 
+    create :create_pending do
+      accept([:name])
+      change(set_attribute(:state, :pending))
+    end
+
     update :fail_cycle do
       require_atomic?(false)
       accept([])
@@ -59,6 +71,7 @@ defmodule AshJobs.TestResources.DagRun do
 
   code_interface do
     define(:create)
+    define(:create_pending)
     define(:get_by_id, action: :read, get_by: [:id])
   end
 end

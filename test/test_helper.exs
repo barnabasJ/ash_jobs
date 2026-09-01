@@ -1,6 +1,3 @@
-# Load compilation helpers (not compiled as a module)
-Code.require_file("support/compilation_helpers.exs", __DIR__)
-
 # Start the test repo
 {:ok, _} = AshJobs.TestRepo.start_link()
 

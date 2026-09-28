@@ -57,6 +57,12 @@ defmodule AshJobs.Readiness do
   # single-row read (`exists?`), so the direct path consults the same
   # expression the scheduler and worker use — no reimplementation of the
   # predicate, no second source of truth.
+  #
+  # `authorize?: false` matches AshOban's own trigger-execution default
+  # (`AshOban.authorize?/0`): the generated scheduler scan and worker re-read
+  # evaluate this same `where` without an actor, so an actor-less policy
+  # refusal here would wrongly report the gate as closed and hold back
+  # dispatch for resources whose policies expect the Oban interaction bypass.
   @spec where_applies?(record :: Ash.Resource.record(), trigger_name :: atom()) :: boolean()
   defp where_applies?(record, trigger_name) do
     case trigger_where(record.__struct__, trigger_name) do
@@ -68,7 +74,7 @@ defmodule AshJobs.Readiness do
         |> Ash.Query.do_filter(primary_key_filter(record.__struct__, record))
         |> Ash.Query.do_filter(where)
         |> set_record_tenant(record.__struct__, record)
-        |> Ash.exists?()
+        |> Ash.exists?(authorize?: false)
     end
   end
 

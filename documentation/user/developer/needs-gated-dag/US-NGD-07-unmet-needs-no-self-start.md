@@ -12,8 +12,11 @@ And the row stays :pending until its readiness where is satisfied
 ## Acceptance criteria
 
 - The create-trigger guard defers to the readiness `where`: a row created with
-  unmet `needs` is enqueued but immediately filtered out by its trigger's
-  `where` rather than running ahead of its dependencies.
+  unmet `needs` is held rather than running ahead of its dependencies.
+- Since US-NGD-10, the hold is enqueue-time: a row whose readiness `where` is
+  false is not enqueued at all (previously it was enqueued and immediately
+  filtered out by the worker's `where` re-read — same visible outcome, more
+  churn).
 - The row waits in `:pending` until a push or poll finds its needs satisfied —
   fan-out create never short-circuits the gate.
 

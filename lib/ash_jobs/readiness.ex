@@ -25,7 +25,19 @@ defmodule AshJobs.Readiness do
     not terminal_state?(record) and needs_satisfied?(record)
   end
 
-  @doc "Runs an AshOban trigger only when the record is ready."
+  @doc """
+  Runs an AshOban trigger only when the record is ready AND the trigger's
+  generated `where` applies to the record right now.
+
+  `AshOban.run_trigger/2` inserts the job without evaluating the trigger's
+  `where` — AshOban applies that expression only in the scheduler's scan and
+  the worker's re-read. Honoring it here keeps the direct paths (create-time
+  first trigger, push-on-success, manual resume) as selective as the paths
+  they feed: a row whose state and needs are satisfied but whose authored
+  predicate is false (a parent-state gate, a custom ready flag) is not
+  enqueued at all instead of being enqueued only to be cancelled by the
+  worker's `where` re-read.
+  """
   @spec run_trigger_if_ready(record :: Ash.Resource.record(), trigger_name :: atom()) ::
           trigger_result()
   def run_trigger_if_ready(record, trigger_name) do
@@ -33,11 +45,60 @@ defmodule AshJobs.Readiness do
       terminal_state?(record) ->
         :terminal
 
-      ready?(record) ->
+      ready?(record) and where_applies?(record, trigger_name) ->
         AshOban.run_trigger(record, trigger_name)
 
       true ->
         :not_ready
+    end
+  end
+
+  # Evaluates the trigger's `where` against the record with a bounded
+  # single-row read (`exists?`), so the direct path consults the same
+  # expression the scheduler and worker use — no reimplementation of the
+  # predicate, no second source of truth.
+  @spec where_applies?(record :: Ash.Resource.record(), trigger_name :: atom()) :: boolean()
+  defp where_applies?(record, trigger_name) do
+    case trigger_where(record.__struct__, trigger_name) do
+      nil ->
+        true
+
+      where ->
+        record.__struct__
+        |> Ash.Query.do_filter(primary_key_filter(record.__struct__, record))
+        |> Ash.Query.do_filter(where)
+        |> set_record_tenant(record.__struct__, record)
+        |> Ash.exists?()
+    end
+  end
+
+  defp trigger_where(resource, trigger_name) do
+    case AshOban.Info.oban_trigger(resource, trigger_name) do
+      nil -> nil
+      trigger -> trigger.where
+    end
+  end
+
+  defp primary_key_filter(resource, record) do
+    resource
+    |> Ash.Resource.Info.primary_key()
+    |> Map.new(fn key -> {key, Map.get(record, key)} end)
+  end
+
+  # Attribute multitenancy: the record's tenant attribute value is the tenant
+  # (mirrors AshOban's `use_tenant_from_record?`), so the read runs in the
+  # record's own tenant. Resources without multitenancy (or with a nil value)
+  # read tenantlessly, exactly like the generated schedulers do.
+  defp set_record_tenant(query, resource, record) do
+    case Ash.Resource.Info.multitenancy_attribute(resource) do
+      nil ->
+        query
+
+      attribute ->
+        case Map.get(record, attribute) do
+          nil -> query
+          tenant -> Ash.Query.set_tenant(query, tenant)
+        end
     end
   end
 

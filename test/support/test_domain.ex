@@ -22,5 +22,7 @@ defmodule AshJobs.TestDomain do
     resource AshJobs.TestResources.StaticBranchWorkflow
     resource AshJobs.TestResources.StaticBranchRun
     resource AshJobs.TestResources.DynamicRequireNRun
+    resource AshJobs.TestResources.WhereGatedJob
+    resource AshJobs.TestResources.WhereGatedNeed
   end
 end

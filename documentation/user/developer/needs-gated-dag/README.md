@@ -30,6 +30,7 @@ flowchart LR
 | US-NGD-05 | A need reaching success pushes its dependents to ready (no poll wait) | [US-NGD-05](./US-NGD-05-success-pushes-dependents-ready.md) |
 | US-NGD-06 | With push disabled, the scheduler poll still advances ready rows      | [US-NGD-06](./US-NGD-06-poll-advances-without-push.md)      |
 | US-NGD-07 | A fanned-out row with unmet needs does not self-start on create       | [US-NGD-07](./US-NGD-07-unmet-needs-no-self-start.md)       |
+| US-NGD-10 | The direct enqueue path honors the trigger's custom `where` before inserting a job | [US-NGD-10](./US-NGD-10-direct-enqueue-honors-where.md) |
 
 ## See also
 

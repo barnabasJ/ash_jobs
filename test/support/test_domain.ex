@@ -24,5 +24,6 @@ defmodule AshJobs.TestDomain do
     resource AshJobs.TestResources.DynamicRequireNRun
     resource AshJobs.TestResources.WhereGatedJob
     resource AshJobs.TestResources.WhereGatedNeed
+    resource AshJobs.TestResources.PolicyGatedJob
   end
 end

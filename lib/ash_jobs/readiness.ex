@@ -58,30 +58,52 @@ defmodule AshJobs.Readiness do
   # expression the scheduler and worker use — no reimplementation of the
   # predicate, no second source of truth.
   #
-  # `authorize?: false` matches AshOban's own trigger-execution default
-  # (`AshOban.authorize?/0`): the generated scheduler scan and worker re-read
-  # evaluate this same `where` without an actor, so an actor-less policy
-  # refusal here would wrongly report the gate as closed and hold back
-  # dispatch for resources whose policies expect the Oban interaction bypass.
+  # The read mirrors the generated SCHEDULER's scan semantics exactly
+  # (`AshOban` `define_schedulers.ex` pipeline) — it is the pre-enqueue
+  # analogue of that scan:
+  #
+  #   * the trigger's configured `read_action` (not a default read),
+  #   * `authorize?: AshOban.authorize?()` — the same application-configured
+  #     value the scheduler and worker pass (default `true`), never a
+  #     hard-coded bypass,
+  #   * `AshOban.build_context(trigger.shared_context)` on the query — the
+  #     `%{private: %{ash_oban?: true}}` marker that `AshOban.Checks.
+  #     AshObanInteraction` policies bypass on, so a policy-protected
+  #     resource answers this read exactly as its own scheduler scan,
+  #   * tenant from the record (mirrors `use_tenant_from_record?`),
+  #     primary-key scoped to the record.
+  #
+  # The actor is `nil`, as it is for the generated schedulers (their Oban
+  # scheduler jobs carry no actor), so authorization rests on the AshOban
+  # interaction context exactly as it does for the scheduled scan.
   @spec where_applies?(record :: Ash.Resource.record(), trigger_name :: atom()) :: boolean()
   defp where_applies?(record, trigger_name) do
-    case trigger_where(record.__struct__, trigger_name) do
+    case trigger_with_semantics(record.__struct__, trigger_name) do
       nil ->
         true
 
-      where ->
-        record.__struct__
-        |> Ash.Query.do_filter(primary_key_filter(record.__struct__, record))
-        |> Ash.Query.do_filter(where)
-        |> set_record_tenant(record.__struct__, record)
-        |> Ash.exists?(authorize?: false)
+      {resource, trigger, domain} ->
+        query =
+          resource
+          |> Ash.Query.select(Ash.Resource.Info.primary_key(resource))
+          |> Ash.Query.set_context(AshOban.build_context(trigger.shared_context))
+          |> Ash.Query.do_filter(primary_key_filter(resource, record))
+          |> Ash.Query.do_filter(trigger.where)
+          |> Ash.Query.for_read(trigger.read_action, %{},
+            authorize?: AshOban.authorize?(),
+            actor: nil,
+            domain: domain
+          )
+          |> set_record_tenant(resource, record)
+
+        Ash.exists?(query)
     end
   end
 
-  defp trigger_where(resource, trigger_name) do
+  defp trigger_with_semantics(resource, trigger_name) do
     case AshOban.Info.oban_trigger(resource, trigger_name) do
       nil -> nil
-      trigger -> trigger.where
+      trigger -> {resource, trigger, AshOban.Info.oban_domain!(resource)}
     end
   end
 

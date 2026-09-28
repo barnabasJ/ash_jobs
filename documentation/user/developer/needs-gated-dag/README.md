@@ -21,16 +21,16 @@ flowchart LR
 
 ## Stories
 
-| ID        | Story                                                                 | File                                                        |
-| --------- | --------------------------------------------------------------------- | ----------------------------------------------------------- |
-| US-NGD-01 | Declare a `needs` dependency between sibling rows                     | [US-NGD-01](./US-NGD-01-declare-needs-edge.md)              |
-| US-NGD-02 | A row with no `needs` becomes ready immediately                       | [US-NGD-02](./US-NGD-02-no-needs-ready-immediately.md)      |
-| US-NGD-03 | A row starts only once all its `needs` reach a success state          | [US-NGD-03](./US-NGD-03-start-after-all-needs-success.md)   |
-| US-NGD-04 | Independent rows run in parallel                                      | [US-NGD-04](./US-NGD-04-independent-rows-parallel.md)       |
-| US-NGD-05 | A need reaching success pushes its dependents to ready (no poll wait) | [US-NGD-05](./US-NGD-05-success-pushes-dependents-ready.md) |
-| US-NGD-06 | With push disabled, the scheduler poll still advances ready rows      | [US-NGD-06](./US-NGD-06-poll-advances-without-push.md)      |
-| US-NGD-07 | A fanned-out row with unmet needs does not self-start on create       | [US-NGD-07](./US-NGD-07-unmet-needs-no-self-start.md)       |
-| US-NGD-10 | The direct enqueue path honors the trigger's custom `where` before inserting a job | [US-NGD-10](./US-NGD-10-direct-enqueue-honors-where.md) |
+| ID        | Story                                                                              | File                                                        |
+| --------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| US-NGD-01 | Declare a `needs` dependency between sibling rows                                  | [US-NGD-01](./US-NGD-01-declare-needs-edge.md)              |
+| US-NGD-02 | A row with no `needs` becomes ready immediately                                    | [US-NGD-02](./US-NGD-02-no-needs-ready-immediately.md)      |
+| US-NGD-03 | A row starts only once all its `needs` reach a success state                       | [US-NGD-03](./US-NGD-03-start-after-all-needs-success.md)   |
+| US-NGD-04 | Independent rows run in parallel                                                   | [US-NGD-04](./US-NGD-04-independent-rows-parallel.md)       |
+| US-NGD-05 | A need reaching success pushes its dependents to ready (no poll wait)              | [US-NGD-05](./US-NGD-05-success-pushes-dependents-ready.md) |
+| US-NGD-06 | With push disabled, the scheduler poll still advances ready rows                   | [US-NGD-06](./US-NGD-06-poll-advances-without-push.md)      |
+| US-NGD-07 | A fanned-out row with unmet needs does not self-start on create                    | [US-NGD-07](./US-NGD-07-unmet-needs-no-self-start.md)       |
+| US-NGD-10 | The direct enqueue path honors the trigger's custom `where` before inserting a job | [US-NGD-10](./US-NGD-10-direct-enqueue-honors-where.md)     |
 
 ## See also
 
